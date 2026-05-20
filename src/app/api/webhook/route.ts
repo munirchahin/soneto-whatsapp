@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
-const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN!;
-
 // GET — verificação do webhook pelo Meta
 export async function GET(req: NextRequest) {
+  const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN ?? "soneto_webhook_2024";
   const { searchParams } = new URL(req.url);
   const mode = searchParams.get("hub.mode");
   const token = searchParams.get("hub.verify_token");
