@@ -27,6 +27,15 @@ interface ContatoDisparo {
   erro?: string;
 }
 
+interface WaTemplate {
+  id: string;
+  name: string;
+  status: "APPROVED" | "PENDING_REVIEW" | "IN_REVIEW" | "REJECTED" | "PAUSED";
+  language: string;
+  category: string;
+  components: { type: string; text?: string; example?: { body_text?: string[][] } }[];
+}
+
 type Aba = "conversas" | "disparos";
 
 function timeLabel(ts: string) {
@@ -127,9 +136,51 @@ export default function Home() {
   // ── Disparos ───────────────────────────────────────────────
   const [csvTexto, setCsvTexto] = useState("");
   const [contatosDisparo, setContatosDisparo] = useState<ContatoDisparo[]>([]);
-  const [mensagemTemplate, setMensagemTemplate] = useState("");
   const [disparando, setDisparando] = useState(false);
   const [progresso, setProgresso] = useState(0);
+
+  // Templates
+  const [templates, setTemplates] = useState<WaTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templateSelecionado, setTemplateSelecionado] = useState<WaTemplate | null>(null);
+
+  const carregarTemplates = async () => {
+    setLoadingTemplates(true);
+    try {
+      const res = await fetch("/api/templates");
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setTemplates(data);
+        // Auto-select first approved template
+        const firstApproved = data.find((t: WaTemplate) => t.status === "APPROVED");
+        if (firstApproved) setTemplateSelecionado(firstApproved);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  // Load templates when Disparos tab is opened
+  useEffect(() => {
+    if (aba === "disparos" && templates.length === 0) carregarTemplates();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aba]);
+
+  // Extract body text and parameters from template components
+  const getTemplateBody = (t: WaTemplate): string => {
+    const body = t.components.find((c) => c.type === "BODY");
+    return body?.text ?? "";
+  };
+
+  // Render template preview substituting {{1}} → nome (and any other indexed vars)
+  const renderTemplate = (t: WaTemplate, nome: string): string => {
+    return getTemplateBody(t).replace(/\{\{(\d+)\}\}/g, (_, idx) => {
+      if (idx === "1") return nome;
+      return `{{${idx}}}`;
+    });
+  };
 
   const linhasCSV = csvTexto.trim().split("\n").filter((l) => l.trim()).length;
 
@@ -145,28 +196,32 @@ export default function Home() {
   };
 
   const disparar = async () => {
-    if (!mensagemTemplate.trim() || contatosDisparo.length === 0 || disparando) return;
+    if (!templateSelecionado || templateSelecionado.status !== "APPROVED") return;
+    if (contatosDisparo.length === 0 || disparando) return;
     setDisparando(true);
     setProgresso(0);
 
-    // Reset statuses
     setContatosDisparo((prev) => prev.map((c) => ({ ...c, status: "pendente" as const, erro: undefined })));
 
     for (let i = 0; i < contatosDisparo.length; i++) {
+      const contato = contatosDisparo[i];
       setContatosDisparo((prev) =>
         prev.map((c, idx) => (idx === i ? { ...c, status: "enviando" } : c))
       );
 
-      const textoPersonalizado = mensagemTemplate.replace(/\{\{nome\}\}/g, contatosDisparo[i].nome);
+      const textoPreview = renderTemplate(templateSelecionado, contato.nome);
 
       try {
-        const res = await fetch("/api/send", {
+        const res = await fetch("/api/broadcast", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            numero: contatosDisparo[i].numero,
-            texto: textoPersonalizado,
-            nome: contatosDisparo[i].nome,
+            numero: contato.numero,
+            nome: contato.nome,
+            template_name: templateSelecionado.name,
+            template_language: templateSelecionado.language,
+            body_parameters: [contato.nome], // {{1}} = nome
+            texto_preview: textoPreview,
           }),
         });
 
@@ -187,14 +242,10 @@ export default function Home() {
       }
 
       setProgresso(Math.round(((i + 1) / contatosDisparo.length) * 100));
-
-      if (i < contatosDisparo.length - 1) {
-        await new Promise((r) => setTimeout(r, 1200));
-      }
+      if (i < contatosDisparo.length - 1) await new Promise((r) => setTimeout(r, 1200));
     }
 
     setDisparando(false);
-    // Refresh contact list so new conversations appear
     carregarContatos();
   };
 
@@ -202,8 +253,10 @@ export default function Home() {
   const totalErro = contatosDisparo.filter((c) => c.status === "erro").length;
   const jaDisparou = contatosDisparo.some((c) => c.status !== "pendente");
   const preview =
-    contatosDisparo.length > 0 && mensagemTemplate
-      ? mensagemTemplate.replace(/\{\{nome\}\}/g, contatosDisparo[0].nome)
+    templateSelecionado && contatosDisparo.length > 0
+      ? renderTemplate(templateSelecionado, contatosDisparo[0].nome)
+      : templateSelecionado && contatosDisparo.length === 0
+      ? renderTemplate(templateSelecionado, "Cliente")
       : null;
 
   return (
@@ -492,39 +545,96 @@ export default function Home() {
             )}
           </div>
 
-          {/* Right: Message composer + send */}
+          {/* Right: Template selector + send */}
           <div className="flex-1 flex flex-col bg-[#0d1418]">
-            <div className="px-4 py-3 bg-[#202c33] border-b border-[#2a3942]">
-              <h2 className="font-semibold text-[#e9edef] mb-0.5">Mensagem</h2>
-              <p className="text-xs text-[#8696a0]">
-                Use{" "}
-                <code className="bg-[#2a3942] text-[#00a884] px-1.5 py-0.5 rounded text-[11px] font-mono">
-                  {"{{nome}}"}
-                </code>{" "}
-                para personalizar com o nome do contato
-              </p>
+            <div className="px-4 py-3 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold text-[#e9edef] mb-0.5">Template de Mensagem</h2>
+                <p className="text-xs text-[#8696a0]">
+                  Disparos usam templates aprovados pela Meta — funcionam mesmo sem histórico de conversa
+                </p>
+              </div>
+              <button
+                onClick={carregarTemplates}
+                disabled={loadingTemplates}
+                className="text-xs text-[#8696a0] hover:text-[#e9edef] transition-colors flex-shrink-0"
+              >
+                {loadingTemplates ? "↻ carregando..." : "↻ atualizar"}
+              </button>
             </div>
 
             <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
-              <textarea
-                className="flex-1 min-h-[140px] bg-[#202c33] text-[#e9edef] placeholder-[#8696a0] rounded-xl p-4 text-sm outline-none resize-none leading-relaxed"
-                placeholder={`Olá {{nome}}! Tudo bem?\n\nPassando para avisar sobre o seu pedido na Soneto Móveis e Colchões. 🛋️\n\nQualquer dúvida, estamos à disposição!`}
-                value={mensagemTemplate}
-                onChange={(e) => setMensagemTemplate(e.target.value)}
-                disabled={disparando}
-              />
+
+              {/* Template list */}
+              {loadingTemplates ? (
+                <div className="flex items-center justify-center py-8 text-[#8696a0] text-sm gap-2">
+                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                  Carregando templates…
+                </div>
+              ) : templates.length === 0 ? (
+                <div className="bg-[#202c33] rounded-xl p-4 text-sm text-[#8696a0] text-center">
+                  Nenhum template encontrado. Crie um no Meta Business Manager.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {templates.map((t) => {
+                    const isApproved = t.status === "APPROVED";
+                    const isSelected = templateSelecionado?.id === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => isApproved && setTemplateSelecionado(t)}
+                        disabled={!isApproved}
+                        className={`text-left rounded-xl border px-4 py-3 transition-all ${
+                          isSelected
+                            ? "border-[#00a884] bg-[#00a88415]"
+                            : isApproved
+                            ? "border-[#2a3942] bg-[#202c33] hover:border-[#8696a0]"
+                            : "border-[#2a3942] bg-[#111b21] opacity-50 cursor-not-allowed"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium text-[#e9edef] font-mono">{t.name}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                            t.status === "APPROVED"
+                              ? "bg-[#00a88430] text-[#00a884]"
+                              : t.status === "PENDING_REVIEW" || t.status === "IN_REVIEW"
+                              ? "bg-yellow-900/40 text-yellow-400"
+                              : "bg-red-900/40 text-red-400"
+                          }`}>
+                            {t.status === "APPROVED" ? "✓ Aprovado"
+                              : t.status === "PENDING_REVIEW" ? "⏳ Em análise"
+                              : t.status === "IN_REVIEW" ? "⏳ Em revisão"
+                              : t.status === "PAUSED" ? "⏸ Pausado"
+                              : t.status}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#8696a0] truncate">
+                          {getTemplateBody(t).slice(0, 80) || "(sem corpo)"}
+                        </p>
+                        <p className="text-[10px] text-[#8696a0] mt-1 uppercase tracking-wide">
+                          {t.category} · {t.language}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Preview */}
-              {preview && (
+              {preview && templateSelecionado && (
                 <div className="bg-[#111b21] rounded-xl p-3 border border-[#2a3942]">
                   <div className="text-xs text-[#8696a0] mb-2 flex items-center gap-1">
                     <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                      <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
                     </svg>
-                    Preview — {contatosDisparo[0]?.nome}
+                    Preview — {contatosDisparo[0]?.nome || "Cliente"}
                   </div>
                   <div className="flex justify-end">
-                    <div className="bg-[#005c4b] rounded-lg rounded-tr-none px-3 py-2 max-w-[80%]">
+                    <div className="bg-[#005c4b] rounded-lg rounded-tr-none px-3 py-2 max-w-[85%]">
                       <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{preview}</p>
                     </div>
                   </div>
@@ -535,7 +645,7 @@ export default function Home() {
               {disparando && (
                 <div className="bg-[#202c33] rounded-xl p-4">
                   <div className="flex justify-between text-xs text-[#8696a0] mb-2">
-                    <span>Enviando mensagens...</span>
+                    <span>Enviando via template…</span>
                     <span className="text-[#00a884] font-medium">{progresso}%</span>
                   </div>
                   <div className="w-full bg-[#2a3942] rounded-full h-2">
@@ -546,14 +656,12 @@ export default function Home() {
                   </div>
                   <div className="mt-2 text-xs text-[#8696a0]">
                     {totalOk + totalErro} de {contatosDisparo.length} processados
-                    {totalErro > 0 && (
-                      <span className="text-red-400 ml-2">· {totalErro} erro{totalErro !== 1 ? "s" : ""}</span>
-                    )}
+                    {totalErro > 0 && <span className="text-red-400 ml-2">· {totalErro} erro{totalErro !== 1 ? "s" : ""}</span>}
                   </div>
                 </div>
               )}
 
-              {/* Results summary */}
+              {/* Results */}
               {!disparando && jaDisparou && (
                 <div className="bg-[#202c33] rounded-xl p-4 flex items-center gap-6">
                   <div className="text-center">
@@ -567,39 +675,52 @@ export default function Home() {
                     </div>
                   )}
                   <div className="flex-1" />
-                  <button
-                    onClick={() => setAba("conversas")}
-                    className="text-sm text-[#00a884] hover:underline"
-                  >
+                  <button onClick={() => setAba("conversas")} className="text-sm text-[#00a884] hover:underline">
                     Ver conversas →
                   </button>
+                </div>
+              )}
+
+              {/* Info box: window rules */}
+              {!disparando && !jaDisparou && (
+                <div className="bg-[#202c33] rounded-xl p-3 flex gap-3 text-xs text-[#8696a0]">
+                  <span className="text-lg leading-none">💡</span>
+                  <div className="space-y-1">
+                    <p><span className="text-[#e9edef]">Templates (Disparos):</span> funcionam a qualquer hora, mesmo sem histórico</p>
+                    <p><span className="text-[#e9edef]">Texto livre (Conversas):</span> só funciona nas 24h após o cliente enviar uma mensagem</p>
+                  </div>
                 </div>
               )}
 
               {/* Send button */}
               <button
                 onClick={disparar}
-                disabled={disparando || !mensagemTemplate.trim() || contatosDisparo.length === 0}
+                disabled={
+                  disparando ||
+                  !templateSelecionado ||
+                  templateSelecionado.status !== "APPROVED" ||
+                  contatosDisparo.length === 0
+                }
                 className="w-full py-3 bg-[#00a884] text-white rounded-xl font-semibold hover:bg-[#02b997] disabled:opacity-40 transition-colors text-sm"
               >
                 {disparando ? (
                   <span className="flex items-center justify-center gap-2">
                     <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                     </svg>
                     Enviando {totalOk + totalErro}/{contatosDisparo.length}…
                   </span>
+                ) : !templateSelecionado ? (
+                  "Selecione um template acima"
+                ) : templateSelecionado.status !== "APPROVED" ? (
+                  `⏳ Aguardando aprovação do template "${templateSelecionado.name}"`
+                ) : contatosDisparo.length === 0 ? (
+                  "Importe os contatos ao lado"
                 ) : (
                   `🚀 Disparar para ${contatosDisparo.length} contato${contatosDisparo.length !== 1 ? "s" : ""}`
                 )}
               </button>
-
-              {contatosDisparo.length === 0 && !disparando && (
-                <p className="text-center text-xs text-[#8696a0]">
-                  Importe os contatos na coluna ao lado para habilitar o disparo
-                </p>
-              )}
             </div>
           </div>
         </div>
