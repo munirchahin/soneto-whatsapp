@@ -20,6 +20,15 @@ interface Contato {
   nao_lidas: number;
 }
 
+interface ContatoDisparo {
+  nome: string;
+  numero: string;
+  status: "pendente" | "enviando" | "ok" | "erro";
+  erro?: string;
+}
+
+type Aba = "conversas" | "disparos";
+
 function timeLabel(ts: string) {
   const d = new Date(ts);
   const now = new Date();
@@ -31,6 +40,9 @@ function timeLabel(ts: string) {
 }
 
 export default function Home() {
+  const [aba, setAba] = useState<Aba>("conversas");
+
+  // ── Conversas ──────────────────────────────────────────────
   const [contatos, setContatos] = useState<Contato[]>([]);
   const [contatoAtivo, setContatoAtivo] = useState<Contato | null>(null);
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
@@ -112,169 +124,486 @@ export default function Home() {
       c.numero.includes(busca)
   );
 
+  // ── Disparos ───────────────────────────────────────────────
+  const [csvTexto, setCsvTexto] = useState("");
+  const [contatosDisparo, setContatosDisparo] = useState<ContatoDisparo[]>([]);
+  const [mensagemTemplate, setMensagemTemplate] = useState("");
+  const [disparando, setDisparando] = useState(false);
+  const [progresso, setProgresso] = useState(0);
+
+  const linhasCSV = csvTexto.trim().split("\n").filter((l) => l.trim()).length;
+
+  const parsearContatos = () => {
+    const linhas = csvTexto.trim().split("\n").filter((l) => l.trim());
+    const parsed: ContatoDisparo[] = linhas
+      .map((linha) => {
+        const partes = linha.split(",").map((p) => p.trim());
+        return { nome: partes[0] || "", numero: partes[1] || "", status: "pendente" as const };
+      })
+      .filter((c) => c.nome && c.numero);
+    setContatosDisparo(parsed);
+  };
+
+  const disparar = async () => {
+    if (!mensagemTemplate.trim() || contatosDisparo.length === 0 || disparando) return;
+    setDisparando(true);
+    setProgresso(0);
+
+    // Reset statuses
+    setContatosDisparo((prev) => prev.map((c) => ({ ...c, status: "pendente" as const, erro: undefined })));
+
+    for (let i = 0; i < contatosDisparo.length; i++) {
+      setContatosDisparo((prev) =>
+        prev.map((c, idx) => (idx === i ? { ...c, status: "enviando" } : c))
+      );
+
+      const textoPersonalizado = mensagemTemplate.replace(/\{\{nome\}\}/g, contatosDisparo[i].nome);
+
+      try {
+        const res = await fetch("/api/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            numero: contatosDisparo[i].numero,
+            texto: textoPersonalizado,
+            nome: contatosDisparo[i].nome,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error || "Falha no envio");
+        }
+
+        setContatosDisparo((prev) =>
+          prev.map((c, idx) => (idx === i ? { ...c, status: "ok" } : c))
+        );
+      } catch (e) {
+        setContatosDisparo((prev) =>
+          prev.map((c, idx) =>
+            idx === i ? { ...c, status: "erro", erro: String(e) } : c
+          )
+        );
+      }
+
+      setProgresso(Math.round(((i + 1) / contatosDisparo.length) * 100));
+
+      if (i < contatosDisparo.length - 1) {
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+    }
+
+    setDisparando(false);
+    // Refresh contact list so new conversations appear
+    carregarContatos();
+  };
+
+  const totalOk = contatosDisparo.filter((c) => c.status === "ok").length;
+  const totalErro = contatosDisparo.filter((c) => c.status === "erro").length;
+  const jaDisparou = contatosDisparo.some((c) => c.status !== "pendente");
+  const preview =
+    contatosDisparo.length > 0 && mensagemTemplate
+      ? mensagemTemplate.replace(/\{\{nome\}\}/g, contatosDisparo[0].nome)
+      : null;
+
   return (
-    <div className="flex h-screen bg-[#111b21] text-[#e9edef]">
-      {/* Sidebar */}
-      <div className="w-[380px] flex flex-col border-r border-[#2a3942] bg-[#111b21]">
-        <div className="flex items-center justify-between px-4 py-3 bg-[#202c33]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold">
-              S
-            </div>
-            <span className="font-semibold text-[#e9edef]">Soneto Pós-venda</span>
+    <div className="flex flex-col h-screen bg-[#111b21] text-[#e9edef]">
+      {/* ── Tab Header ─────────────────────────────────────── */}
+      <div className="flex items-center border-b border-[#2a3942] bg-[#202c33] flex-shrink-0">
+        <div className="flex items-center gap-2 px-4 py-2 border-r border-[#2a3942]">
+          <div className="w-7 h-7 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold text-xs">
+            S
           </div>
+          <span className="text-sm font-semibold text-[#e9edef]">Soneto Pós-venda</span>
         </div>
+        <button
+          onClick={() => setAba("conversas")}
+          className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 ${
+            aba === "conversas"
+              ? "text-[#00a884] border-[#00a884]"
+              : "text-[#8696a0] border-transparent hover:text-[#e9edef]"
+          }`}
+        >
+          💬 Conversas
+          {contatos.reduce((s, c) => s + c.nao_lidas, 0) > 0 && (
+            <span className="ml-1.5 bg-[#00a884] text-white text-[10px] rounded-full px-1.5 py-0.5">
+              {contatos.reduce((s, c) => s + c.nao_lidas, 0)}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setAba("disparos")}
+          className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 ${
+            aba === "disparos"
+              ? "text-[#00a884] border-[#00a884]"
+              : "text-[#8696a0] border-transparent hover:text-[#e9edef]"
+          }`}
+        >
+          📣 Disparos
+        </button>
+      </div>
 
-        <div className="px-3 py-2 bg-[#111b21]">
-          <div className="flex items-center gap-2 bg-[#202c33] rounded-lg px-3 py-2">
-            <svg className="w-4 h-4 text-[#8696a0]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              className="bg-transparent text-sm text-[#e9edef] placeholder-[#8696a0] outline-none w-full"
-              placeholder="Pesquisar contatos"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {contatosFiltrados.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-[#8696a0] text-sm gap-2 pb-20">
-              <svg className="w-16 h-16 opacity-30" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56-.35-.12-.74-.03-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
-              </svg>
-              <span>Nenhuma conversa ainda</span>
-              <span className="text-xs text-center px-8 opacity-70">As conversas aparecerão aqui quando clientes responderem</span>
+      {/* ── CONVERSAS ──────────────────────────────────────── */}
+      {aba === "conversas" && (
+        <div className="flex flex-1 overflow-hidden">
+          {/* Sidebar */}
+          <div className="w-[380px] flex flex-col border-r border-[#2a3942] bg-[#111b21]">
+            <div className="px-3 py-2 bg-[#111b21]">
+              <div className="flex items-center gap-2 bg-[#202c33] rounded-lg px-3 py-2">
+                <svg className="w-4 h-4 text-[#8696a0]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  className="bg-transparent text-sm text-[#e9edef] placeholder-[#8696a0] outline-none w-full"
+                  placeholder="Pesquisar contatos"
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                />
+              </div>
             </div>
-          ) : (
-            contatosFiltrados.map((c) => (
-              <div
-                key={c.numero}
-                onClick={() => selecionarContato(c)}
-                className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#202c33] transition-colors ${
-                  contatoAtivo?.numero === c.numero ? "bg-[#2a3942]" : ""
-                }`}
-              >
-                <div className="w-12 h-12 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
-                  {c.nome.charAt(0).toUpperCase()}
+
+            <div className="flex-1 overflow-y-auto">
+              {contatosFiltrados.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-[#8696a0] text-sm gap-2 pb-20">
+                  <svg className="w-16 h-16 opacity-30" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56-.35-.12-.74-.03-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z" />
+                  </svg>
+                  <span>Nenhuma conversa ainda</span>
+                  <span className="text-xs text-center px-8 opacity-70">
+                    As conversas aparecerão aqui quando clientes responderem
+                  </span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-baseline">
-                    <span className="font-medium text-[#e9edef] truncate">{c.nome}</span>
-                    <span className="text-xs text-[#8696a0] ml-2 flex-shrink-0">
-                      {timeLabel(c.ultimo_timestamp)}
-                    </span>
+              ) : (
+                contatosFiltrados.map((c) => (
+                  <div
+                    key={c.numero}
+                    onClick={() => selecionarContato(c)}
+                    className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#202c33] transition-colors ${
+                      contatoAtivo?.numero === c.numero ? "bg-[#2a3942]" : ""
+                    }`}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+                      {c.nome.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-baseline">
+                        <span className="font-medium text-[#e9edef] truncate">{c.nome}</span>
+                        <span className="text-xs text-[#8696a0] ml-2 flex-shrink-0">
+                          {timeLabel(c.ultimo_timestamp)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center mt-0.5">
+                        <span className="text-sm text-[#8696a0] truncate">{c.ultima_mensagem}</span>
+                        {c.nao_lidas > 0 && (
+                          <span className="ml-2 bg-[#00a884] text-white text-xs rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">
+                            {c.nao_lidas}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center mt-0.5">
-                    <span className="text-sm text-[#8696a0] truncate">{c.ultima_mensagem}</span>
-                    {c.nao_lidas > 0 && (
-                      <span className="ml-2 bg-[#00a884] text-white text-xs rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">
-                        {c.nao_lidas}
-                      </span>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Chat */}
+          <div className="flex-1 flex flex-col">
+            {contatoAtivo ? (
+              <>
+                <div className="flex items-center gap-3 px-4 py-3 bg-[#202c33] border-b border-[#2a3942]">
+                  <div className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold">
+                    {contatoAtivo.nome.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-[#e9edef]">{contatoAtivo.nome}</div>
+                    <div className="text-xs text-[#8696a0]">{contatoAtivo.numero}</div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-[5%] py-4 bg-[#0d1418]">
+                  {mensagens.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`flex mb-1 ${m.direcao === "saida" ? "justify-end" : "justify-start"}`}
+                    >
+                      <div
+                        className={`max-w-[65%] rounded-lg px-3 py-2 shadow-md ${
+                          m.direcao === "saida"
+                            ? "bg-[#005c4b] rounded-tr-none"
+                            : "bg-[#202c33] rounded-tl-none"
+                        }`}
+                      >
+                        <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{m.texto}</p>
+                        <div className="flex items-center justify-end gap-1 mt-1">
+                          <span className="text-[10px] text-[#8696a0]">{timeLabel(m.timestamp)}</span>
+                          {m.direcao === "saida" && (
+                            <svg className="w-3.5 h-3.5 text-[#53bdeb]" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z" />
+                            </svg>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={bottomRef} />
+                </div>
+
+                <div className="flex items-end gap-3 px-4 py-3 bg-[#202c33]">
+                  <textarea
+                    className="flex-1 bg-[#2a3942] text-[#e9edef] placeholder-[#8696a0] rounded-lg px-4 py-2 text-sm outline-none resize-none max-h-32 min-h-[40px]"
+                    placeholder="Digite uma mensagem"
+                    value={texto}
+                    rows={1}
+                    onChange={(e) => {
+                      setTexto(e.target.value);
+                      e.target.style.height = "auto";
+                      e.target.style.height = Math.min(e.target.scrollHeight, 128) + "px";
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        enviarMensagem();
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={enviarMensagem}
+                    disabled={enviando || !texto.trim()}
+                    className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white hover:bg-[#02b997] transition-colors disabled:opacity-50 flex-shrink-0"
+                  >
+                    {enviando ? (
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center bg-[#222e35]">
+                <div className="mb-6 opacity-20">
+                  <svg className="w-40 h-40" viewBox="0 0 303 172" fill="none">
+                    <path d="M229.566 160.229c0 5.697-4.619 10.316-10.315 10.316H15.316C9.619 170.545 5 165.926 5 160.229V11.772C5 6.075 9.619 1.456 15.316 1.456H219.251c5.696 0 10.315 4.619 10.315 10.316v148.457z" fill="#364147" />
+                    <path d="M298 160.229c0 5.697-4.619 10.316-10.315 10.316H83.75c-5.697 0-10.316-4.619-10.316-10.316V11.772C73.434 6.075 78.053 1.456 83.75 1.456H287.685C293.381 1.456 298 6.075 298 11.772v148.457z" fill="#202c33" />
+                  </svg>
+                </div>
+                <h2 className="text-[#e9edef] text-2xl font-light mb-2">Soneto WhatsApp</h2>
+                <p className="text-[#8696a0] text-sm text-center max-w-xs">
+                  Selecione uma conversa para começar a responder.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── DISPAROS ───────────────────────────────────────── */}
+      {aba === "disparos" && (
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left: Contacts input */}
+          <div className="w-[400px] flex flex-col border-r border-[#2a3942] bg-[#111b21]">
+            <div className="px-4 py-3 bg-[#202c33] border-b border-[#2a3942]">
+              <h2 className="font-semibold text-[#e9edef] mb-0.5">Lista de Contatos</h2>
+              <p className="text-xs text-[#8696a0]">
+                Cole no formato CSV: <span className="text-[#e9edef] font-mono">Nome, Número</span> — um por linha
+              </p>
+            </div>
+
+            {contatosDisparo.length === 0 ? (
+              <div className="flex-1 flex flex-col p-4 gap-3">
+                <textarea
+                  className="flex-1 bg-[#202c33] text-[#e9edef] placeholder-[#8696a0] rounded-lg p-3 text-sm outline-none resize-none font-mono leading-relaxed"
+                  placeholder={`João Silva, 5511999990001\nMaria Souza, 5511999990002\nCarlos Lima, 5511999990003`}
+                  value={csvTexto}
+                  onChange={(e) => setCsvTexto(e.target.value)}
+                />
+                <div className="text-xs text-[#8696a0] bg-[#202c33] rounded-lg p-3 space-y-1">
+                  <p className="font-medium text-[#e9edef]">Formato aceito:</p>
+                  <p>• CSV: <span className="font-mono">Nome, DDD+Número</span></p>
+                  <p>• Número com código do país: <span className="font-mono">55</span> (Brasil)</p>
+                  <p>• Exemplo: <span className="font-mono">João, 5511999990001</span></p>
+                </div>
+                <button
+                  onClick={parsearContatos}
+                  disabled={!csvTexto.trim()}
+                  className="w-full py-2.5 bg-[#00a884] text-white rounded-lg text-sm font-medium hover:bg-[#02b997] disabled:opacity-40 transition-colors"
+                >
+                  Importar {linhasCSV > 0 ? `${linhasCSV} contato${linhasCSV !== 1 ? "s" : ""}` : "contatos"}
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col flex-1 overflow-hidden">
+                <div className="px-4 py-2 bg-[#202c33] border-b border-[#2a3942] flex items-center justify-between flex-shrink-0">
+                  <span className="text-sm text-[#e9edef]">
+                    {contatosDisparo.length} contato{contatosDisparo.length !== 1 ? "s" : ""}
+                  </span>
+                  <div className="flex gap-3 text-xs">
+                    {totalOk > 0 && <span className="text-[#00a884]">✓ {totalOk} ok</span>}
+                    {totalErro > 0 && <span className="text-red-400">✗ {totalErro} erro</span>}
+                    {!disparando && (
+                      <button
+                        onClick={() => { setContatosDisparo([]); setCsvTexto(""); }}
+                        className="text-[#8696a0] hover:text-[#e9edef] transition-colors"
+                      >
+                        Limpar
+                      </button>
                     )}
                   </div>
                 </div>
+                <div className="flex-1 overflow-y-auto">
+                  {contatosDisparo.map((c, i) => (
+                    <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-b border-[#1e2c33]">
+                      <div className="w-9 h-9 rounded-full bg-[#2a3942] flex items-center justify-center text-[#e9edef] font-bold text-sm flex-shrink-0">
+                        {c.nome.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-[#e9edef] truncate">{c.nome}</div>
+                        <div className="text-xs text-[#8696a0] font-mono">{c.numero}</div>
+                      </div>
+                      <div className="flex-shrink-0 w-6 text-center">
+                        {c.status === "pendente" && <span className="text-[#8696a0] text-xs">—</span>}
+                        {c.status === "enviando" && (
+                          <svg className="w-4 h-4 animate-spin text-[#ffcc00] mx-auto" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                        )}
+                        {c.status === "ok" && (
+                          <svg className="w-4 h-4 text-[#00a884] mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                          </svg>
+                        )}
+                        {c.status === "erro" && (
+                          <svg className="w-4 h-4 text-red-400 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))
-          )}
-        </div>
-      </div>
+            )}
+          </div>
 
-      {/* Chat */}
-      <div className="flex-1 flex flex-col">
-        {contatoAtivo ? (
-          <>
-            <div className="flex items-center gap-3 px-4 py-3 bg-[#202c33] border-b border-[#2a3942]">
-              <div className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold">
-                {contatoAtivo.nome.charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <div className="font-semibold text-[#e9edef]">{contatoAtivo.nome}</div>
-                <div className="text-xs text-[#8696a0]">{contatoAtivo.numero}</div>
-              </div>
+          {/* Right: Message composer + send */}
+          <div className="flex-1 flex flex-col bg-[#0d1418]">
+            <div className="px-4 py-3 bg-[#202c33] border-b border-[#2a3942]">
+              <h2 className="font-semibold text-[#e9edef] mb-0.5">Mensagem</h2>
+              <p className="text-xs text-[#8696a0]">
+                Use{" "}
+                <code className="bg-[#2a3942] text-[#00a884] px-1.5 py-0.5 rounded text-[11px] font-mono">
+                  {"{{nome}}"}
+                </code>{" "}
+                para personalizar com o nome do contato
+              </p>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-[5%] py-4 bg-[#0d1418]">
-              {mensagens.map((m) => (
-                <div
-                  key={m.id}
-                  className={`flex mb-1 ${m.direcao === "saida" ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[65%] rounded-lg px-3 py-2 shadow-md ${
-                      m.direcao === "saida"
-                        ? "bg-[#005c4b] rounded-tr-none"
-                        : "bg-[#202c33] rounded-tl-none"
-                    }`}
-                  >
-                    <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{m.texto}</p>
-                    <div className="flex items-center justify-end gap-1 mt-1">
-                      <span className="text-[10px] text-[#8696a0]">{timeLabel(m.timestamp)}</span>
-                      {m.direcao === "saida" && (
-                        <svg className="w-3.5 h-3.5 text-[#53bdeb]" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/>
-                        </svg>
-                      )}
+            <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
+              <textarea
+                className="flex-1 min-h-[140px] bg-[#202c33] text-[#e9edef] placeholder-[#8696a0] rounded-xl p-4 text-sm outline-none resize-none leading-relaxed"
+                placeholder={`Olá {{nome}}! Tudo bem?\n\nPassando para avisar sobre o seu pedido na Soneto Móveis e Colchões. 🛋️\n\nQualquer dúvida, estamos à disposição!`}
+                value={mensagemTemplate}
+                onChange={(e) => setMensagemTemplate(e.target.value)}
+                disabled={disparando}
+              />
+
+              {/* Preview */}
+              {preview && (
+                <div className="bg-[#111b21] rounded-xl p-3 border border-[#2a3942]">
+                  <div className="text-xs text-[#8696a0] mb-2 flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+                    </svg>
+                    Preview — {contatosDisparo[0]?.nome}
+                  </div>
+                  <div className="flex justify-end">
+                    <div className="bg-[#005c4b] rounded-lg rounded-tr-none px-3 py-2 max-w-[80%]">
+                      <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{preview}</p>
                     </div>
                   </div>
                 </div>
-              ))}
-              <div ref={bottomRef} />
-            </div>
+              )}
 
-            <div className="flex items-end gap-3 px-4 py-3 bg-[#202c33]">
-              <textarea
-                className="flex-1 bg-[#2a3942] text-[#e9edef] placeholder-[#8696a0] rounded-lg px-4 py-2 text-sm outline-none resize-none max-h-32 min-h-[40px]"
-                placeholder="Digite uma mensagem"
-                value={texto}
-                rows={1}
-                onChange={(e) => {
-                  setTexto(e.target.value);
-                  e.target.style.height = "auto";
-                  e.target.style.height = Math.min(e.target.scrollHeight, 128) + "px";
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    enviarMensagem();
-                  }
-                }}
-              />
+              {/* Progress bar */}
+              {disparando && (
+                <div className="bg-[#202c33] rounded-xl p-4">
+                  <div className="flex justify-between text-xs text-[#8696a0] mb-2">
+                    <span>Enviando mensagens...</span>
+                    <span className="text-[#00a884] font-medium">{progresso}%</span>
+                  </div>
+                  <div className="w-full bg-[#2a3942] rounded-full h-2">
+                    <div
+                      className="bg-[#00a884] h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${progresso}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 text-xs text-[#8696a0]">
+                    {totalOk + totalErro} de {contatosDisparo.length} processados
+                    {totalErro > 0 && (
+                      <span className="text-red-400 ml-2">· {totalErro} erro{totalErro !== 1 ? "s" : ""}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Results summary */}
+              {!disparando && jaDisparou && (
+                <div className="bg-[#202c33] rounded-xl p-4 flex items-center gap-6">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-[#00a884]">{totalOk}</div>
+                    <div className="text-xs text-[#8696a0] mt-0.5">enviados</div>
+                  </div>
+                  {totalErro > 0 && (
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-red-400">{totalErro}</div>
+                      <div className="text-xs text-[#8696a0] mt-0.5">erros</div>
+                    </div>
+                  )}
+                  <div className="flex-1" />
+                  <button
+                    onClick={() => setAba("conversas")}
+                    className="text-sm text-[#00a884] hover:underline"
+                  >
+                    Ver conversas →
+                  </button>
+                </div>
+              )}
+
+              {/* Send button */}
               <button
-                onClick={enviarMensagem}
-                disabled={enviando || !texto.trim()}
-                className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white hover:bg-[#02b997] transition-colors disabled:opacity-50 flex-shrink-0"
+                onClick={disparar}
+                disabled={disparando || !mensagemTemplate.trim() || contatosDisparo.length === 0}
+                className="w-full py-3 bg-[#00a884] text-white rounded-xl font-semibold hover:bg-[#02b997] disabled:opacity-40 transition-colors text-sm"
               >
-                {enviando ? (
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
+                {disparando ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Enviando {totalOk + totalErro}/{contatosDisparo.length}…
+                  </span>
                 ) : (
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                  </svg>
+                  `🚀 Disparar para ${contatosDisparo.length} contato${contatosDisparo.length !== 1 ? "s" : ""}`
                 )}
               </button>
+
+              {contatosDisparo.length === 0 && !disparando && (
+                <p className="text-center text-xs text-[#8696a0]">
+                  Importe os contatos na coluna ao lado para habilitar o disparo
+                </p>
+              )}
             </div>
-          </>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center bg-[#222e35]">
-            <div className="mb-6 opacity-20">
-              <svg className="w-40 h-40" viewBox="0 0 303 172" fill="none">
-                <path d="M229.566 160.229c0 5.697-4.619 10.316-10.315 10.316H15.316C9.619 170.545 5 165.926 5 160.229V11.772C5 6.075 9.619 1.456 15.316 1.456H219.251c5.696 0 10.315 4.619 10.315 10.316v148.457z" fill="#364147"/>
-                <path d="M298 160.229c0 5.697-4.619 10.316-10.315 10.316H83.75c-5.697 0-10.316-4.619-10.316-10.316V11.772C73.434 6.075 78.053 1.456 83.75 1.456H287.685C293.381 1.456 298 6.075 298 11.772v148.457z" fill="#202c33"/>
-              </svg>
-            </div>
-            <h2 className="text-[#e9edef] text-2xl font-light mb-2">Soneto WhatsApp</h2>
-            <p className="text-[#8696a0] text-sm text-center max-w-xs">
-              Selecione uma conversa para começar a responder.
-            </p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
