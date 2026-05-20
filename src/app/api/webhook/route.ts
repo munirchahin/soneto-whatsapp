@@ -3,7 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 // GET — verificação do webhook pelo Meta
 export async function GET(req: NextRequest) {
-  const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN ?? "soneto_webhook_2024";
+  const VERIFY_TOKEN = (process.env.WHATSAPP_VERIFY_TOKEN || "soneto_webhook_2024").trim();
   const { searchParams } = new URL(req.url);
   const mode = searchParams.get("hub.mode");
   const token = searchParams.get("hub.verify_token");
