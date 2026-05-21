@@ -1,19 +1,16 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Raleway } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const raleway = Raleway({
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-raleway",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Soneto WhatsApp",
+  title: "Soneto Pós-venda",
   description: "Painel de atendimento pós-venda Soneto Móveis e Colchões",
 };
 
@@ -23,11 +20,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="h-full overflow-hidden">{children}</body>
+    <html lang="pt-BR" className={`${raleway.variable} h-full antialiased`}>
+      <body className="h-full overflow-hidden font-[family-name:var(--font-raleway)]">
+        {children}
+      </body>
     </html>
   );
 }

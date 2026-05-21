@@ -2,6 +2,26 @@
 
 import { useEffect, useRef, useState } from "react";
 
+// When embedded in WordPress with admin bar, receive offset via postMessage
+// WordPress HTML widget sends: postMessage({ type: 'adminBarHeight', height: 32 }, '*')
+function useAdminBarOffset() {
+  const [offset, setOffset] = useState(0);
+  useEffect(() => {
+    // If in iframe, apply 32px default (WP admin bar) as safe fallback
+    const inIframe = window.self !== window.top;
+    if (inIframe) setOffset(32);
+    // Listen for precise height from parent
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === "adminBarHeight" && typeof e.data.height === "number") {
+        setOffset(e.data.height);
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+  return offset;
+}
+
 interface Mensagem {
   id: number;
   numero: string;
@@ -49,6 +69,7 @@ function timeLabel(ts: string) {
 }
 
 export default function Home() {
+  const adminBarOffset = useAdminBarOffset();
   const [aba, setAba] = useState<Aba>("conversas");
 
   // ── Conversas ──────────────────────────────────────────────
@@ -260,26 +281,35 @@ export default function Home() {
       : null;
 
   return (
-    <div className="flex flex-col h-screen bg-[#111b21] text-[#e9edef]">
+    <div
+      className="flex flex-col bg-[#111b21] text-[#e9edef]"
+      style={{ height: `calc(100vh - ${adminBarOffset}px)`, marginTop: `${adminBarOffset}px` }}
+    >
       {/* ── Tab Header ─────────────────────────────────────── */}
-      <div className="flex items-center border-b border-[#2a3942] bg-[#202c33] flex-shrink-0">
-        <div className="flex items-center gap-2 px-4 py-2 border-r border-[#2a3942]">
-          <div className="w-7 h-7 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold text-xs">
-            S
+      <div className="flex items-center border-b border-[#2a3942] bg-[#1a1a1a] flex-shrink-0">
+        {/* Soneto brand mark */}
+        <div className="flex items-center gap-2.5 px-4 py-2.5 border-r border-[#2a3942]">
+          <div className="flex items-center justify-center w-7 h-7 rounded-sm bg-[#FFA300] flex-shrink-0">
+            <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+            </svg>
           </div>
-          <span className="text-sm font-semibold text-[#e9edef]">Soneto Pós-venda</span>
+          <div className="leading-tight">
+            <div className="text-[11px] font-bold tracking-widest text-[#FFA300] uppercase">Soneto</div>
+            <div className="text-[10px] text-[#8696a0] tracking-wide">Pós-venda</div>
+          </div>
         </div>
         <button
           onClick={() => setAba("conversas")}
           className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 ${
             aba === "conversas"
-              ? "text-[#00a884] border-[#00a884]"
+              ? "text-[#FFA300] border-[#FFA300]"
               : "text-[#8696a0] border-transparent hover:text-[#e9edef]"
           }`}
         >
           💬 Conversas
           {contatos.reduce((s, c) => s + c.nao_lidas, 0) > 0 && (
-            <span className="ml-1.5 bg-[#00a884] text-white text-[10px] rounded-full px-1.5 py-0.5">
+            <span className="ml-1.5 bg-[#FFA300] text-white text-[10px] rounded-full px-1.5 py-0.5">
               {contatos.reduce((s, c) => s + c.nao_lidas, 0)}
             </span>
           )}
@@ -288,7 +318,7 @@ export default function Home() {
           onClick={() => setAba("disparos")}
           className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 ${
             aba === "disparos"
-              ? "text-[#00a884] border-[#00a884]"
+              ? "text-[#FFA300] border-[#FFA300]"
               : "text-[#8696a0] border-transparent hover:text-[#e9edef]"
           }`}
         >
@@ -335,7 +365,7 @@ export default function Home() {
                       contatoAtivo?.numero === c.numero ? "bg-[#2a3942]" : ""
                     }`}
                   >
-                    <div className="w-12 h-12 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+                    <div className="w-12 h-12 rounded-full bg-[#FFA300] flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
                       {c.nome.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -348,7 +378,7 @@ export default function Home() {
                       <div className="flex justify-between items-center mt-0.5">
                         <span className="text-sm text-[#8696a0] truncate">{c.ultima_mensagem}</span>
                         {c.nao_lidas > 0 && (
-                          <span className="ml-2 bg-[#00a884] text-white text-xs rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">
+                          <span className="ml-2 bg-[#FFA300] text-white text-xs rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">
                             {c.nao_lidas}
                           </span>
                         )}
@@ -365,7 +395,7 @@ export default function Home() {
             {contatoAtivo ? (
               <>
                 <div className="flex items-center gap-3 px-4 py-3 bg-[#202c33] border-b border-[#2a3942]">
-                  <div className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white font-bold">
+                  <div className="w-10 h-10 rounded-full bg-[#FFA300] flex items-center justify-center text-white font-bold">
                     {contatoAtivo.nome.charAt(0).toUpperCase()}
                   </div>
                   <div>
@@ -383,7 +413,7 @@ export default function Home() {
                       <div
                         className={`max-w-[65%] rounded-lg px-3 py-2 shadow-md ${
                           m.direcao === "saida"
-                            ? "bg-[#005c4b] rounded-tr-none"
+                            ? "bg-[#7A4200] rounded-tr-none"
                             : "bg-[#202c33] rounded-tl-none"
                         }`}
                       >
@@ -391,7 +421,7 @@ export default function Home() {
                         <div className="flex items-center justify-end gap-1 mt-1">
                           <span className="text-[10px] text-[#8696a0]">{timeLabel(m.timestamp)}</span>
                           {m.direcao === "saida" && (
-                            <svg className="w-3.5 h-3.5 text-[#53bdeb]" fill="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-3.5 h-3.5 text-[#FFA300]" fill="currentColor" viewBox="0 0 24 24">
                               <path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z" />
                             </svg>
                           )}
@@ -423,7 +453,7 @@ export default function Home() {
                   <button
                     onClick={enviarMensagem}
                     disabled={enviando || !texto.trim()}
-                    className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white hover:bg-[#02b997] transition-colors disabled:opacity-50 flex-shrink-0"
+                    className="w-10 h-10 rounded-full bg-[#FFA300] flex items-center justify-center text-white hover:bg-[#FFB020] transition-colors disabled:opacity-50 flex-shrink-0"
                   >
                     {enviando ? (
                       <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -485,7 +515,7 @@ export default function Home() {
                 <button
                   onClick={parsearContatos}
                   disabled={!csvTexto.trim()}
-                  className="w-full py-2.5 bg-[#00a884] text-white rounded-lg text-sm font-medium hover:bg-[#02b997] disabled:opacity-40 transition-colors"
+                  className="w-full py-2.5 bg-[#FFA300] text-white rounded-lg text-sm font-medium hover:bg-[#FFB020] disabled:opacity-40 transition-colors"
                 >
                   Importar {linhasCSV > 0 ? `${linhasCSV} contato${linhasCSV !== 1 ? "s" : ""}` : "contatos"}
                 </button>
@@ -497,7 +527,7 @@ export default function Home() {
                     {contatosDisparo.length} contato{contatosDisparo.length !== 1 ? "s" : ""}
                   </span>
                   <div className="flex gap-3 text-xs">
-                    {totalOk > 0 && <span className="text-[#00a884]">✓ {totalOk} ok</span>}
+                    {totalOk > 0 && <span className="text-[#FFA300]">✓ {totalOk} ok</span>}
                     {totalErro > 0 && <span className="text-red-400">✗ {totalErro} erro</span>}
                     {!disparando && (
                       <button
@@ -528,7 +558,7 @@ export default function Home() {
                           </svg>
                         )}
                         {c.status === "ok" && (
-                          <svg className="w-4 h-4 text-[#00a884] mx-auto" fill="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4 text-[#FFA300] mx-auto" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                           </svg>
                         )}
@@ -590,7 +620,7 @@ export default function Home() {
                         disabled={!isApproved}
                         className={`text-left rounded-xl border px-4 py-3 transition-all ${
                           isSelected
-                            ? "border-[#00a884] bg-[#00a88415]"
+                            ? "border-[#FFA300] bg-[#FFA30015]"
                             : isApproved
                             ? "border-[#2a3942] bg-[#202c33] hover:border-[#8696a0]"
                             : "border-[#2a3942] bg-[#111b21] opacity-50 cursor-not-allowed"
@@ -600,7 +630,7 @@ export default function Home() {
                           <span className="text-sm font-medium text-[#e9edef] font-mono">{t.name}</span>
                           <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                             t.status === "APPROVED"
-                              ? "bg-[#00a88430] text-[#00a884]"
+                              ? "bg-[#FFA30025] text-[#FFA300]"
                               : t.status === "PENDING_REVIEW" || t.status === "IN_REVIEW"
                               ? "bg-yellow-900/40 text-yellow-400"
                               : "bg-red-900/40 text-red-400"
@@ -634,7 +664,7 @@ export default function Home() {
                     Preview — {contatosDisparo[0]?.nome || "Cliente"}
                   </div>
                   <div className="flex justify-end">
-                    <div className="bg-[#005c4b] rounded-lg rounded-tr-none px-3 py-2 max-w-[85%]">
+                    <div className="bg-[#7A4200] rounded-lg rounded-tr-none px-3 py-2 max-w-[85%]">
                       <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{preview}</p>
                     </div>
                   </div>
@@ -646,11 +676,11 @@ export default function Home() {
                 <div className="bg-[#202c33] rounded-xl p-4">
                   <div className="flex justify-between text-xs text-[#8696a0] mb-2">
                     <span>Enviando via template…</span>
-                    <span className="text-[#00a884] font-medium">{progresso}%</span>
+                    <span className="text-[#FFA300] font-medium">{progresso}%</span>
                   </div>
                   <div className="w-full bg-[#2a3942] rounded-full h-2">
                     <div
-                      className="bg-[#00a884] h-2 rounded-full transition-all duration-500"
+                      className="bg-[#FFA300] h-2 rounded-full transition-all duration-500"
                       style={{ width: `${progresso}%` }}
                     />
                   </div>
@@ -665,7 +695,7 @@ export default function Home() {
               {!disparando && jaDisparou && (
                 <div className="bg-[#202c33] rounded-xl p-4 flex items-center gap-6">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-[#00a884]">{totalOk}</div>
+                    <div className="text-2xl font-bold text-[#FFA300]">{totalOk}</div>
                     <div className="text-xs text-[#8696a0] mt-0.5">enviados</div>
                   </div>
                   {totalErro > 0 && (
@@ -675,7 +705,7 @@ export default function Home() {
                     </div>
                   )}
                   <div className="flex-1" />
-                  <button onClick={() => setAba("conversas")} className="text-sm text-[#00a884] hover:underline">
+                  <button onClick={() => setAba("conversas")} className="text-sm text-[#FFA300] hover:underline">
                     Ver conversas →
                   </button>
                 </div>
@@ -701,7 +731,7 @@ export default function Home() {
                   templateSelecionado.status !== "APPROVED" ||
                   contatosDisparo.length === 0
                 }
-                className="w-full py-3 bg-[#00a884] text-white rounded-xl font-semibold hover:bg-[#02b997] disabled:opacity-40 transition-colors text-sm"
+                className="w-full py-3 bg-[#FFA300] text-white rounded-xl font-semibold hover:bg-[#FFB020] disabled:opacity-40 transition-colors text-sm"
               >
                 {disparando ? (
                   <span className="flex items-center justify-center gap-2">

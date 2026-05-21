@@ -21,7 +21,8 @@ export interface WaTemplate {
 
 export async function GET() {
   try {
-    const wabaId = await getWabaId();
+    // Prefer explicit env var; fallback to dynamic lookup from phone number
+    const wabaId = process.env.WHATSAPP_WABA_ID || await getWabaId();
 
     const res = await fetch(
       `https://graph.facebook.com/v20.0/${wabaId}/message_templates` +
