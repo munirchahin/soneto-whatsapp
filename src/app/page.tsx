@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
 // When embedded in WordPress with admin bar, receive offset via postMessage
@@ -290,16 +291,17 @@ export default function Home() {
     >
       {/* ── Tab Header ─────────────────────────────────────── */}
       <div className="flex items-center border-b border-[#2a3942] bg-[#1a1a1a] flex-shrink-0">
-        {/* Soneto brand mark */}
-        <div className="flex items-center gap-2.5 px-4 py-2.5 border-r border-[#2a3942]">
-          <div className="flex items-center justify-center w-7 h-7 rounded-sm bg-[#FFA300] flex-shrink-0">
-            <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
-            </svg>
-          </div>
-          <div className="leading-tight">
-            <div className="text-[11px] font-bold tracking-widest text-[#FFA300] uppercase">Soneto</div>
-            <div className="text-[10px] text-[#8696a0] tracking-wide">Pós-venda</div>
+        {/* Soneto logo */}
+        <div className="flex items-center px-4 py-2 border-r border-[#2a3942] flex-shrink-0">
+          <div className="bg-white rounded-md px-2.5 py-1.5 flex items-center">
+            <Image
+              src="/soneto-logo.png"
+              alt="Soneto Móveis e Colchões"
+              width={110}
+              height={28}
+              priority
+              style={{ objectFit: "contain" }}
+            />
           </div>
         </div>
         <button
