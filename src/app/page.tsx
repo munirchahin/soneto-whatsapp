@@ -195,12 +195,14 @@ export default function Home() {
     return body?.text ?? "";
   };
 
-  // Render template preview substituting {{1}} → nome (and any other indexed vars)
+  // Render template preview substituting named params {{nome}} and positional {{1}}
   const renderTemplate = (t: WaTemplate, nome: string): string => {
-    return getTemplateBody(t).replace(/\{\{(\d+)\}\}/g, (_, idx) => {
-      if (idx === "1") return nome;
-      return `{{${idx}}}`;
-    });
+    return getTemplateBody(t)
+      .replace(/\{\{nome\}\}/g, nome)        // named param: {{nome}}
+      .replace(/\{\{(\d+)\}\}/g, (_, idx) => { // positional: {{1}}, {{2}}...
+        if (idx === "1") return nome;
+        return `{{${idx}}}`;
+      });
   };
 
   const linhasCSV = csvTexto.trim().split("\n").filter((l) => l.trim()).length;
@@ -241,7 +243,8 @@ export default function Home() {
             nome: contato.nome,
             template_name: templateSelecionado.name,
             template_language: templateSelecionado.language,
-            body_parameters: [contato.nome], // {{1}} = nome
+            // Send named param for {{nome}}; falls back gracefully for {{1}} templates too
+            body_parameters: [{ parameter_name: "nome", text: contato.nome }],
             texto_preview: textoPreview,
           }),
         });

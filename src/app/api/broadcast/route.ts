@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
 
     const numeroFormatado = formatNumber(numero);
 
+    // body_parameters accepts string[] (positional) or {parameter_name,text}[] (named)
     const wa = await sendWhatsAppTemplate(
       numeroFormatado,
       template_name,

@@ -26,18 +26,26 @@ export async function sendWhatsAppMessage(to: string, text: string) {
 }
 
 // ── Template message (works for outbound / outside 24h window) ────────────────
+// bodyParameters accepts either positional strings ["value1", "value2"]
+// or named param objects [{ parameter_name: "nome", text: "João" }]
+type BodyParam = string | { parameter_name: string; text: string };
+
 export async function sendWhatsAppTemplate(
   to: string,
   templateName: string,
   languageCode: string,
-  bodyParameters: string[] = []
+  bodyParameters: BodyParam[] = []
 ) {
   const components =
     bodyParameters.length > 0
       ? [
           {
             type: "body",
-            parameters: bodyParameters.map((text) => ({ type: "text", text })),
+            parameters: bodyParameters.map((p) =>
+              typeof p === "string"
+                ? { type: "text", text: p }
+                : { type: "text", parameter_name: p.parameter_name, text: p.text }
+            ),
           },
         ]
       : [];
