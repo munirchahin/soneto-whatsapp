@@ -92,3 +92,31 @@ export function formatNumber(numero: string): string {
   const digits = numero.replace(/\D/g, "");
   return digits.startsWith("55") ? digits : `55${digits}`;
 }
+
+// ── Media download helpers ────────────────────────────────────────────────────
+
+/** Step 1: resolve the temporary CDN URL + mime_type from a media_id */
+export async function getWhatsAppMediaInfo(
+  mediaId: string
+): Promise<{ url: string; mime_type: string; file_size?: number }> {
+  const res = await fetch(
+    `https://graph.facebook.com/v20.0/${mediaId}`,
+    { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error("getWhatsAppMediaInfo: " + JSON.stringify(data));
+  return { url: data.url, mime_type: data.mime_type, file_size: data.file_size };
+}
+
+/** Step 2: download the actual binary from the CDN URL */
+export async function downloadWhatsAppMedia(
+  cdnUrl: string
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const res = await fetch(cdnUrl, {
+    headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
+  });
+  if (!res.ok) throw new Error("downloadWhatsAppMedia failed: " + res.status);
+  const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+  const arrayBuffer = await res.arrayBuffer();
+  return { buffer: Buffer.from(arrayBuffer), contentType };
+}

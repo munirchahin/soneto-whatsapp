@@ -59,6 +59,81 @@ interface WaTemplate {
 
 type Aba = "conversas" | "disparos";
 
+// ── Media message renderer ────────────────────────────────────────────────────
+// Formato: __MEDIA__{type}__{url}__{extra}
+function MediaBubble({ texto }: { texto: string }) {
+  const match = texto.match(/^__MEDIA__(\w+)__(.+?)__(.*)$/s);
+  if (!match) return <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{texto}</p>;
+
+  const [, type, url, extra] = match;
+
+  if (type === "image" || type === "sticker") {
+    return (
+      <div className="flex flex-col gap-1">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={extra || "Imagem"}
+          className="rounded-lg max-w-[260px] max-h-[300px] object-cover cursor-pointer"
+          onClick={() => window.open(url, "_blank")}
+        />
+        {extra && <p className="text-[#e9edef] text-sm mt-1">{extra}</p>}
+      </div>
+    );
+  }
+
+  if (type === "video") {
+    return (
+      <div className="flex flex-col gap-1">
+        <video
+          src={url}
+          controls
+          className="rounded-lg max-w-[260px] max-h-[300px]"
+        />
+        {extra && <p className="text-[#e9edef] text-sm mt-1">{extra}</p>}
+      </div>
+    );
+  }
+
+  if (type === "audio") {
+    return (
+      <div className="flex items-center gap-2 py-1">
+        <svg className="w-5 h-5 text-[#FFA300] flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+        </svg>
+        <audio controls src={url} className="h-8 max-w-[200px]" style={{ colorScheme: "dark" }} />
+      </div>
+    );
+  }
+
+  if (type === "document") {
+    const filename = extra || url.split("/").pop() || "Documento";
+    const ext = filename.split(".").pop()?.toUpperCase() ?? "DOC";
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2 hover:bg-white/20 transition-colors no-underline"
+      >
+        <div className="w-9 h-10 bg-[#FFA300] rounded flex items-center justify-center flex-shrink-0">
+          <span className="text-[9px] font-bold text-white">{ext}</span>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[#e9edef] text-sm font-medium truncate max-w-[180px]">{filename}</p>
+          <p className="text-[#8696a0] text-xs">Toque para abrir</p>
+        </div>
+        <svg className="w-4 h-4 text-[#8696a0] flex-shrink-0 ml-1" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+        </svg>
+      </a>
+    );
+  }
+
+  // fallback
+  return <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{texto}</p>;
+}
+
 function timeLabel(ts: string) {
   const d = new Date(ts);
   const now = new Date();
@@ -422,7 +497,7 @@ export default function Home() {
                             : "bg-[#202c33] rounded-tl-none"
                         }`}
                       >
-                        <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{m.texto}</p>
+                        <MediaBubble texto={m.texto} />
                         <div className="flex items-center justify-end gap-1 mt-1">
                           <span className="text-[10px] text-[#8696a0]">{timeLabel(m.timestamp)}</span>
                           {m.direcao === "saida" && (
