@@ -17,8 +17,7 @@ export async function GET(req: NextRequest) {
 }
 
 // ── Media types supported by WhatsApp Cloud API ───────────────────────────────
-const MEDIA_TYPES = ["image", "video", "audio", "document", "sticker"] as const;
-type MediaType = (typeof MEDIA_TYPES)[number];
+type MediaType = "image" | "video" | "audio" | "document" | "sticker";
 
 /** Mime type → file extension */
 function mimeToExt(mime: string): string {
