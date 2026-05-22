@@ -62,7 +62,7 @@ type Aba = "conversas" | "disparos";
 // ── Media message renderer ────────────────────────────────────────────────────
 // Formato: __MEDIA__{type}__{url}__{extra}
 function MediaBubble({ texto }: { texto: string }) {
-  const match = texto.match(/^__MEDIA__(\w+)__(.+?)__(.*)$/s);
+  const match = texto.match(/^__MEDIA__(\w+)__(.+?)__([\s\S]*)$/);
   if (!match) return <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{texto}</p>;
 
   const [, type, url, extra] = match;
