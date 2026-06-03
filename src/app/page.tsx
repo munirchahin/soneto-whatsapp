@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 // When embedded in WordPress with admin bar, receive offset via postMessage
 // WordPress HTML widget sends: postMessage({ type: 'adminBarHeight', height: 32 }, '*')
@@ -235,6 +235,39 @@ export default function Home() {
   const [contatosDisparo, setContatosDisparo] = useState<ContatoDisparo[]>([]);
   const [disparando, setDisparando] = useState(false);
   const [progresso, setProgresso] = useState(0);
+
+  // Extração de contatos a partir de um relatório PDF (formato Soneto)
+  const [extraindo, setExtraindo] = useState(false);
+  const [extracaoMsg, setExtracaoMsg] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const extrairPDF = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExtraindo(true);
+    setExtracaoMsg(`Extraindo de ${file.name}…`);
+    try {
+      const fd = new FormData();
+      fd.append("arquivo", file);
+      const res = await fetch("/api/extract", { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.ok) {
+        setCsvTexto((prev) => (prev.trim() ? prev.trim() + "\n" : "") + data.texto);
+        setExtracaoMsg(
+          `${data.contatos.length} contato${data.contatos.length !== 1 ? "s" : ""} extraído${
+            data.contatos.length !== 1 ? "s" : ""
+          }. Revise a lista antes de importar.`
+        );
+      } else {
+        setExtracaoMsg(`Erro: ${data.error || "não foi possível extrair"}`);
+      }
+    } catch {
+      setExtracaoMsg("Erro ao processar o arquivo.");
+    } finally {
+      setExtraindo(false);
+      e.target.value = "";
+    }
+  };
 
   // Templates
   const [templates, setTemplates] = useState<WaTemplate[]>([]);
@@ -586,6 +619,21 @@ export default function Home() {
                   value={csvTexto}
                   onChange={(e) => setCsvTexto(e.target.value)}
                 />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="hidden"
+                  onChange={extrairPDF}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={extraindo}
+                  className="w-full py-2.5 border border-[#2a3942] text-[#e9edef] rounded-lg text-sm font-medium hover:border-[#FFA300] hover:text-[#FFA300] disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+                >
+                  {extraindo ? "Extraindo…" : "📎 Extrair de PDF (relatório Soneto)"}
+                </button>
+                {extracaoMsg && <p className="text-xs text-[#8696a0]">{extracaoMsg}</p>}
                 <div className="text-xs text-[#8696a0] bg-[#202c33] rounded-lg p-3 space-y-1">
                   <p className="font-medium text-[#e9edef]">Formato aceito:</p>
                   <p>• CSV: <span className="font-mono">Nome, DDD+Número</span></p>
