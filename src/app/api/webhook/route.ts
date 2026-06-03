@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getWhatsAppMediaInfo, downloadWhatsAppMedia } from "@/lib/whatsapp";
+import { notifyNewMessage } from "@/lib/email";
 
 // GET — verificação do webhook pelo Meta
 export async function GET(req: NextRequest) {
@@ -175,6 +176,13 @@ export async function POST(req: NextRequest) {
       });
 
       console.log(`📩 ${nome} (${numero}) [${msg.type}]: ${texto.slice(0, 80)}`);
+
+      // Notifica por email (não derruba o webhook se o envio falhar)
+      try {
+        await notifyNewMessage(nome, numero, texto);
+      } catch (e) {
+        console.error("Falha ao notificar por email:", e);
+      }
     }
 
     // Status de entrega
