@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
-import { sendWhatsAppTemplate, formatNumber } from "@/lib/whatsapp";
+import { enviarTemplateERegistrar } from "@/lib/disparo";
 
 // POST /api/broadcast
 // Body: {
@@ -8,12 +7,11 @@ import { sendWhatsAppTemplate, formatNumber } from "@/lib/whatsapp";
 //   nome: string,
 //   template_name: string,
 //   template_language: string,   // e.g. "pt_BR"
-//   body_parameters: string[],   // ordered list of {{1}}, {{2}}... values
 //   texto_preview: string        // rendered text to save in DB (for Conversas tab)
 // }
 export async function POST(req: NextRequest) {
   try {
-    const { numero, nome, template_name, template_language, body_parameters, texto_preview } =
+    const { numero, nome, template_name, template_language, texto_preview } =
       await req.json();
 
     if (!numero || !template_name) {
@@ -23,24 +21,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const numeroFormatado = formatNumber(numero);
-
-    // body_parameters accepts string[] (positional) or {parameter_name,text}[] (named)
-    const wa = await sendWhatsAppTemplate(
-      numeroFormatado,
-      template_name,
-      template_language ?? "pt_BR",
-      body_parameters ?? []
-    );
-
-    // Save as outgoing message so it appears in Conversas
-    await supabaseAdmin.from("mensagens").insert({
-      numero: numeroFormatado,
-      nome: nome ?? numeroFormatado,
-      texto: texto_preview ?? `[Template: ${template_name}]`,
-      direcao: "saida",
-      wa_message_id: wa?.messages?.[0]?.id ?? null,
-      timestamp: new Date().toISOString(),
+    const wa = await enviarTemplateERegistrar({
+      numero,
+      nome: nome ?? numero,
+      templateName: template_name,
+      templateLanguage: template_language ?? "pt_BR",
+      textoPreview: texto_preview ?? `[Template: ${template_name}]`,
     });
 
     return NextResponse.json({ ok: true, wa });

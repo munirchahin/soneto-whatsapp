@@ -48,6 +48,15 @@ interface ContatoDisparo {
   erro?: string;
 }
 
+interface Agendamento {
+  id: string;
+  contatos: { nome: string; numero: string; status: "pendente" | "ok" | "erro" }[];
+  template_name: string;
+  template_language: string;
+  agendado_para: string;
+  status: "pendente" | "processando" | "concluido" | "cancelado";
+}
+
 interface WaTemplate {
   id: string;
   name: string;
@@ -132,6 +141,18 @@ function MediaBubble({ texto }: { texto: string }) {
 
   // fallback
   return <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{texto}</p>;
+}
+
+function formatarDataBrasilia(iso: string): string {
+  return (
+    new Date(iso).toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }) + " (horário de Brasília)"
+  );
 }
 
 function timeLabel(ts: string) {
@@ -295,8 +316,94 @@ export default function Home() {
   // Load templates when Disparos tab is opened
   useEffect(() => {
     if (aba === "disparos" && templates.length === 0) carregarTemplates();
+    if (aba === "disparos") carregarAgendamentos();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aba]);
+
+  // ── Agendamento ────────────────────────────────────────────
+  const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const [mostrarAgendamento, setMostrarAgendamento] = useState(false);
+  const [modoAgendamento, setModoAgendamento] = useState<"horas" | "data">("horas");
+  const [horasAgendamento, setHorasAgendamento] = useState("1");
+  const [dataHoraAgendamento, setDataHoraAgendamento] = useState("");
+  const [agendando, setAgendando] = useState(false);
+  const [agendamentoMsg, setAgendamentoMsg] = useState("");
+
+  const carregarAgendamentos = async () => {
+    try {
+      const res = await fetch("/api/schedule");
+      const data = await res.json();
+      if (Array.isArray(data)) setAgendamentos(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Interpreta o input como horário de Brasília (America/Sao_Paulo, UTC-3, sem horário de verão)
+  const calcularAgendadoPara = (): Date | null => {
+    if (modoAgendamento === "horas") {
+      const horas = parseFloat(horasAgendamento.replace(",", "."));
+      if (!horas || horas <= 0) return null;
+      return new Date(Date.now() + horas * 3600 * 1000);
+    }
+    if (!dataHoraAgendamento) return null;
+    const d = new Date(`${dataHoraAgendamento}:00-03:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+
+  const agendar = async () => {
+    if (!templateSelecionado || templateSelecionado.status !== "APPROVED") return;
+    if (contatosDisparo.length === 0 || agendando) return;
+
+    const data = calcularAgendadoPara();
+    if (!data || data.getTime() <= Date.now()) {
+      setAgendamentoMsg("Escolha um horário no futuro.");
+      return;
+    }
+
+    setAgendando(true);
+    setAgendamentoMsg("");
+    try {
+      const contatosPayload = contatosDisparo.map((c) => ({
+        nome: c.nome,
+        numero: c.numero,
+        texto_preview: renderTemplate(templateSelecionado, c.nome),
+      }));
+
+      const res = await fetch("/api/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contatos: contatosPayload,
+          template_name: templateSelecionado.name,
+          template_language: templateSelecionado.language,
+          agendado_para: data.toISOString(),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Falha ao agendar");
+      }
+
+      setAgendamentoMsg("");
+      setMostrarAgendamento(false);
+      await carregarAgendamentos();
+    } catch (e) {
+      setAgendamentoMsg(`Erro: ${String(e)}`);
+    } finally {
+      setAgendando(false);
+    }
+  };
+
+  const cancelarAgendamento = async (id: string) => {
+    try {
+      await fetch(`/api/schedule/${id}`, { method: "DELETE" });
+      await carregarAgendamentos();
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Extract body text and parameters from template components
   const getTemplateBody = (t: WaTemplate): string => {
@@ -391,6 +498,12 @@ export default function Home() {
       : templateSelecionado && contatosDisparo.length === 0
       ? renderTemplate(templateSelecionado, "Cliente")
       : null;
+
+  const botoesDesabilitados =
+    disparando ||
+    !templateSelecionado ||
+    templateSelecionado.status !== "APPROVED" ||
+    contatosDisparo.length === 0;
 
   return (
     <div
@@ -850,35 +963,131 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Send button */}
-              <button
-                onClick={disparar}
-                disabled={
-                  disparando ||
-                  !templateSelecionado ||
-                  templateSelecionado.status !== "APPROVED" ||
-                  contatosDisparo.length === 0
-                }
-                className="w-full py-3 bg-[#FFA300] text-white rounded-xl font-semibold hover:bg-[#FFB020] disabled:opacity-40 transition-colors text-sm"
-              >
-                {disparando ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                    </svg>
-                    Enviando {totalOk + totalErro}/{contatosDisparo.length}…
-                  </span>
-                ) : !templateSelecionado ? (
-                  "Selecione um template acima"
-                ) : templateSelecionado.status !== "APPROVED" ? (
-                  `⏳ Aguardando aprovação do template "${templateSelecionado.name}"`
-                ) : contatosDisparo.length === 0 ? (
-                  "Importe os contatos ao lado"
-                ) : (
-                  `🚀 Disparar para ${contatosDisparo.length} contato${contatosDisparo.length !== 1 ? "s" : ""}`
-                )}
-              </button>
+              {/* Agendamentos pendentes */}
+              {agendamentos.length > 0 && (
+                <div className="bg-[#202c33] rounded-xl p-3 flex flex-col gap-2">
+                  <p className="text-xs font-medium text-[#e9edef]">🕒 Agendamentos pendentes</p>
+                  {agendamentos.map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-center justify-between gap-3 text-xs bg-[#111b21] rounded-lg px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <span className="text-[#e9edef]">{formatarDataBrasilia(a.agendado_para)}</span>
+                        <span className="text-[#8696a0] ml-2">
+                          {a.contatos.length} contato{a.contatos.length !== 1 ? "s" : ""} · {a.template_name}
+                        </span>
+                        {a.status === "processando" && (
+                          <span className="text-[#FFA300] ml-2">enviando…</span>
+                        )}
+                      </div>
+                      {a.status === "pendente" && (
+                        <button
+                          onClick={() => cancelarAgendamento(a.id)}
+                          className="text-red-400 hover:text-red-300 flex-shrink-0"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Send / Schedule buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={disparar}
+                  disabled={botoesDesabilitados}
+                  className="flex-1 py-3 bg-[#FFA300] text-white rounded-xl font-semibold hover:bg-[#FFB020] disabled:opacity-40 transition-colors text-sm"
+                >
+                  {disparando ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Enviando {totalOk + totalErro}/{contatosDisparo.length}…
+                    </span>
+                  ) : !templateSelecionado ? (
+                    "Selecione um template acima"
+                  ) : templateSelecionado.status !== "APPROVED" ? (
+                    `⏳ Aguardando aprovação do template "${templateSelecionado.name}"`
+                  ) : contatosDisparo.length === 0 ? (
+                    "Importe os contatos ao lado"
+                  ) : (
+                    `🚀 Disparar para ${contatosDisparo.length} contato${contatosDisparo.length !== 1 ? "s" : ""}`
+                  )}
+                </button>
+                <button
+                  onClick={() => setMostrarAgendamento((v) => !v)}
+                  disabled={botoesDesabilitados}
+                  className="px-4 py-3 border border-[#2a3942] text-[#e9edef] rounded-xl font-semibold hover:border-[#FFA300] hover:text-[#FFA300] disabled:opacity-40 transition-colors text-sm flex-shrink-0"
+                >
+                  🕒 Agendar
+                </button>
+              </div>
+
+              {mostrarAgendamento && (
+                <div className="bg-[#202c33] rounded-xl p-4 flex flex-col gap-3">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setModoAgendamento("horas")}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        modoAgendamento === "horas"
+                          ? "bg-[#FFA300] text-white"
+                          : "bg-[#111b21] text-[#8696a0] hover:text-[#e9edef]"
+                      }`}
+                    >
+                      Daqui a X horas
+                    </button>
+                    <button
+                      onClick={() => setModoAgendamento("data")}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        modoAgendamento === "data"
+                          ? "bg-[#FFA300] text-white"
+                          : "bg-[#111b21] text-[#8696a0] hover:text-[#e9edef]"
+                      }`}
+                    >
+                      Data e hora específica
+                    </button>
+                  </div>
+
+                  {modoAgendamento === "horas" ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0.1"
+                        step="0.5"
+                        value={horasAgendamento}
+                        onChange={(e) => setHorasAgendamento(e.target.value)}
+                        className="w-24 bg-[#111b21] text-[#e9edef] rounded-lg px-3 py-2 text-sm outline-none"
+                      />
+                      <span className="text-xs text-[#8696a0]">hora(s) a partir de agora</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="datetime-local"
+                        value={dataHoraAgendamento}
+                        onChange={(e) => setDataHoraAgendamento(e.target.value)}
+                        className="flex-1 bg-[#111b21] text-[#e9edef] rounded-lg px-3 py-2 text-sm outline-none [color-scheme:dark]"
+                      />
+                      <span className="text-[10px] text-[#8696a0] flex-shrink-0">horário de Brasília</span>
+                    </div>
+                  )}
+
+                  {agendamentoMsg && <p className="text-xs text-[#8696a0]">{agendamentoMsg}</p>}
+
+                  <button
+                    onClick={agendar}
+                    disabled={agendando}
+                    className="w-full py-2.5 bg-[#FFA300] text-white rounded-lg text-sm font-medium hover:bg-[#FFB020] disabled:opacity-40 transition-colors"
+                  >
+                    {agendando ? "Agendando…" : "Confirmar agendamento"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
