@@ -1,0 +1,15 @@
+name: Processar disparos agendados
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  processar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chamar /api/cron/process-scheduled
+        run: |
+          curl -sf -X POST "${{ secrets.APP_URL }}/api/cron/process-scheduled" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
