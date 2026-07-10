@@ -44,6 +44,7 @@ interface Contato {
   nome: string;
   ultima_mensagem: string;
   ultimo_timestamp: string;
+  ultimo_envio: string | null;
   nao_lidas: number;
   tags: Tag[];
 }
@@ -191,6 +192,11 @@ export default function Home() {
   const [filtroTag, setFiltroTag] = useState<string | null>(null);
   const [menuTagAberto, setMenuTagAberto] = useState<string | null>(null);
 
+  // ── Filtros de não lidas e data do último envio ──────────────
+  const [apenasNaoLidas, setApenasNaoLidas] = useState(false);
+  const [filtroEnvioDe, setFiltroEnvioDe] = useState("");
+  const [filtroEnvioAte, setFiltroEnvioAte] = useState("");
+
   const carregarTags = async () => {
     try {
       const res = await fetch("/api/tags");
@@ -326,12 +332,27 @@ export default function Home() {
     }
   };
 
-  const contatosFiltrados = contatos.filter(
-    (c) =>
-      (c.nome.toLowerCase().includes(busca.toLowerCase()) ||
-        c.numero.includes(busca)) &&
-      (filtroTag === null || c.tags.some((t) => t.id === filtroTag))
-  );
+  const paraDataLocal = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate()
+    ).padStart(2, "0")}`;
+  };
+
+  const contatosFiltrados = contatos.filter((c) => {
+    if (!(c.nome.toLowerCase().includes(busca.toLowerCase()) || c.numero.includes(busca))) {
+      return false;
+    }
+    if (filtroTag !== null && !c.tags.some((t) => t.id === filtroTag)) return false;
+    if (apenasNaoLidas && c.nao_lidas === 0) return false;
+    if (filtroEnvioDe || filtroEnvioAte) {
+      if (!c.ultimo_envio) return false;
+      const dataEnvio = paraDataLocal(c.ultimo_envio);
+      if (filtroEnvioDe && dataEnvio < filtroEnvioDe) return false;
+      if (filtroEnvioAte && dataEnvio > filtroEnvioAte) return false;
+    }
+    return true;
+  });
 
   // ── Disparos ───────────────────────────────────────────────
   const [csvTexto, setCsvTexto] = useState("");
@@ -653,35 +674,78 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Abas de filtro por tag */}
-            {tags.length > 0 && (
-              <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto">
-                <button
-                  onClick={() => setFiltroTag(null)}
-                  className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
-                    filtroTag === null
-                      ? "bg-[#FFA300] border-[#FFA300] text-white"
-                      : "border-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
-                  }`}
-                >
-                  Todas
-                </button>
-                {tags.map((t) => (
+            {/* Filtro de não lidas + abas de filtro por tag */}
+            <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto">
+              <button
+                onClick={() => setApenasNaoLidas((v) => !v)}
+                className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                  apenasNaoLidas
+                    ? "bg-[#FFA300] border-[#FFA300] text-white"
+                    : "border-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
+                }`}
+              >
+                Não lidas
+              </button>
+              {tags.length > 0 && (
+                <>
                   <button
-                    key={t.id}
-                    onClick={() => setFiltroTag(filtroTag === t.id ? null : t.id)}
-                    className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors"
-                    style={
-                      filtroTag === t.id
-                        ? { backgroundColor: t.cor, borderColor: t.cor, color: "#fff" }
-                        : { borderColor: "#2a3942", color: t.cor }
-                    }
+                    onClick={() => setFiltroTag(null)}
+                    className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                      filtroTag === null
+                        ? "bg-[#FFA300] border-[#FFA300] text-white"
+                        : "border-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
+                    }`}
                   >
-                    {t.nome}
+                    Todas as tags
                   </button>
-                ))}
-              </div>
-            )}
+                  {tags.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setFiltroTag(filtroTag === t.id ? null : t.id)}
+                      className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors"
+                      style={
+                        filtroTag === t.id
+                          ? { backgroundColor: t.cor, borderColor: t.cor, color: "#fff" }
+                          : { borderColor: "#2a3942", color: t.cor }
+                      }
+                    >
+                      {t.nome}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+
+            {/* Filtro por data do último envio nosso */}
+            <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap">
+              <span className="text-[10px] text-[#8696a0] uppercase tracking-wide">Último envio meu:</span>
+              <input
+                type="date"
+                value={filtroEnvioDe}
+                onChange={(e) => setFiltroEnvioDe(e.target.value)}
+                className="bg-[#202c33] text-[#e9edef] text-xs rounded px-2 py-1 outline-none border border-[#2a3942] focus:border-[#FFA300] [color-scheme:dark]"
+                title="A partir de"
+              />
+              <span className="text-[10px] text-[#8696a0]">até</span>
+              <input
+                type="date"
+                value={filtroEnvioAte}
+                onChange={(e) => setFiltroEnvioAte(e.target.value)}
+                className="bg-[#202c33] text-[#e9edef] text-xs rounded px-2 py-1 outline-none border border-[#2a3942] focus:border-[#FFA300] [color-scheme:dark]"
+                title="Até"
+              />
+              {(filtroEnvioDe || filtroEnvioAte) && (
+                <button
+                  onClick={() => {
+                    setFiltroEnvioDe("");
+                    setFiltroEnvioAte("");
+                  }}
+                  className="text-[10px] text-[#8696a0] hover:text-[#e9edef] transition-colors"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
 
             <div className="flex-1 overflow-y-auto">
               {contatosFiltrados.length === 0 ? (

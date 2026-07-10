@@ -210,6 +210,80 @@ async function decodeMessageText(msg: Record<string, unknown>): Promise<string> 
   }
 }
 
+// ── Categorização automática de tags ao receber uma mensagem ─────────────
+const TAG_SAIR = "Sair (opt-out)";
+const TAG_RESPOSTA_AUTOMATICA = "Resposta automática";
+
+// Janela de tempo entre nosso último envio e a resposta do contato para
+// considerarmos que pode ser uma resposta automática (bot / ausência).
+// Nenhum humano digita um parágrafo de agradecimento nesse intervalo.
+const JANELA_RESPOSTA_AUTOMATICA_MS = 15_000;
+
+const TERMOS_RESPOSTA_AUTOMATICA = [
+  "agradecemos sua mensagem",
+  "agradecemos o contato",
+  "agradecemos seu contato",
+  "mensagem automática",
+  "resposta automática",
+  "esta é uma mensagem automática",
+  "retornaremos em breve",
+  "responderemos em breve",
+  "em breve retornaremos",
+  "recebemos sua mensagem",
+  "recebemos seu contato",
+  "fora do horário de atendimento",
+  "horário de atendimento",
+  "no momento estamos fora",
+  "aguarde que em breve",
+];
+
+async function buscarIdDaTag(nome: string): Promise<string | null> {
+  const { data } = await supabaseAdmin.from("tags").select("id").eq("nome", nome).maybeSingle();
+  return data?.id ?? null;
+}
+
+async function atribuirTag(numero: string, tagId: string) {
+  await supabaseAdmin.from("contato_tags").upsert({ numero, tag_id: tagId }, { onConflict: "numero,tag_id" });
+}
+
+async function categorizarAutomaticamente(numero: string, texto: string, timestampIso: string) {
+  const textoNormalizado = texto.trim().toLowerCase();
+
+  // Regra 1: opt-out explícito — resposta é exatamente "sair".
+  if (textoNormalizado === "sair") {
+    const tagId = await buscarIdDaTag(TAG_SAIR);
+    if (tagId) await atribuirTag(numero, tagId);
+    return;
+  }
+
+  // Regra 2: resposta automática. Um retorno quase instantâneo após nosso
+  // último envio já é um forte indício de bot/ausência, mas só aplicamos a
+  // tag com a confirmação de que o texto bate com os termos típicos desse
+  // tipo de resposta — evita marcar como automática uma resposta humana
+  // rápida por coincidência.
+  const { data: ultimaSaida } = await supabaseAdmin
+    .from("mensagens")
+    .select("timestamp")
+    .eq("numero", numero)
+    .eq("direcao", "saida")
+    .order("timestamp", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!ultimaSaida) return;
+
+  const delta = new Date(timestampIso).getTime() - new Date(ultimaSaida.timestamp).getTime();
+  const respostaInstantanea = delta >= 0 && delta <= JANELA_RESPOSTA_AUTOMATICA_MS;
+  const contemTermoAutomatico = TERMOS_RESPOSTA_AUTOMATICA.some((termo) =>
+    textoNormalizado.includes(termo)
+  );
+
+  if (respostaInstantanea && contemTermoAutomatico) {
+    const tagId = await buscarIdDaTag(TAG_RESPOSTA_AUTOMATICA);
+    if (tagId) await atribuirTag(numero, tagId);
+  }
+}
+
 async function processValue(value: {
   messages?: Record<string, unknown>[];
   contacts?: { wa_id: string; profile?: { name?: string } }[];
@@ -237,6 +311,12 @@ async function processValue(value: {
         wa_message_id,
         timestamp,
       });
+
+      try {
+        await categorizarAutomaticamente(numero, texto, timestamp);
+      } catch (e) {
+        console.error("Falha na categorização automática:", e);
+      }
 
       console.log(`📩 ${nome} (${numero}) [${msg.type}]: ${texto.slice(0, 80)}`);
 
