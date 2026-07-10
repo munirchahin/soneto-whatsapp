@@ -45,6 +45,7 @@ export async function GET() {
           nome: string;
           ultima_mensagem: string;
           ultimo_timestamp: string;
+          ultimo_envio: string | null;
           nao_lidas: number;
           tags: Tag[];
         }
@@ -57,14 +58,19 @@ export async function GET() {
             nome: m.nome,
             ultima_mensagem: m.texto,
             ultimo_timestamp: m.timestamp,
+            ultimo_envio: null,
             nao_lidas: 0,
             tags: tagsPorNumero.get(m.numero) ?? [],
           });
         }
+        const c = map.get(m.numero)!;
         if (m.direcao === "entrada" && !m.lida) {
-          const c = map.get(m.numero)!;
           c.nao_lidas++;
-          map.set(m.numero, c);
+        }
+        // msgs está ordenado por timestamp desc, então a primeira "saida"
+        // encontrada para o número é o último envio nosso.
+        if (m.direcao === "saida" && !c.ultimo_envio) {
+          c.ultimo_envio = m.timestamp;
         }
       }
 
@@ -77,8 +83,9 @@ export async function GET() {
       return NextResponse.json(contatos);
     }
 
-    const contatos = (data ?? []).map((c: { numero: string }) => ({
+    const contatos = (data ?? []).map((c: { numero: string; ultimo_envio?: string | null }) => ({
       ...c,
+      ultimo_envio: c.ultimo_envio ?? null,
       tags: tagsPorNumero.get(c.numero) ?? [],
     }));
 

@@ -44,6 +44,7 @@ interface Contato {
   nome: string;
   ultima_mensagem: string;
   ultimo_timestamp: string;
+  ultimo_envio: string | null;
   nao_lidas: number;
   tags: Tag[];
 }
@@ -190,6 +191,12 @@ export default function Home() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [filtroTag, setFiltroTag] = useState<string | null>(null);
   const [menuTagAberto, setMenuTagAberto] = useState<string | null>(null);
+  const menuTagRef = useRef<HTMLDivElement>(null);
+
+  // ── Filtros de não lidas e data do último envio ──────────────
+  const [apenasNaoLidas, setApenasNaoLidas] = useState(false);
+  const [filtroEnvioDe, setFiltroEnvioDe] = useState("");
+  const [filtroEnvioAte, setFiltroEnvioAte] = useState("");
 
   const carregarTags = async () => {
     try {
@@ -211,6 +218,40 @@ export default function Home() {
       await carregarContatos();
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const [novaTagAberta, setNovaTagAberta] = useState(false);
+  const [novaTagNome, setNovaTagNome] = useState("");
+  const [novaTagCor, setNovaTagCor] = useState("#FFA300");
+  const [criandoTag, setCriandoTag] = useState(false);
+  const [novaTagErro, setNovaTagErro] = useState("");
+
+  const criarTag = async (numero: string) => {
+    if (!novaTagNome.trim() || criandoTag) return;
+    setCriandoTag(true);
+    setNovaTagErro("");
+    try {
+      const res = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: novaTagNome.trim(), cor: novaTagCor }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setNovaTagErro(data?.error || "Erro ao criar tag");
+        return;
+      }
+      await carregarTags();
+      await alternarTag(numero, data.id, false);
+      setNovaTagNome("");
+      setNovaTagCor("#FFA300");
+      setNovaTagAberta(false);
+    } catch (e) {
+      console.error(e);
+      setNovaTagErro("Erro ao criar tag");
+    } finally {
+      setCriandoTag(false);
     }
   };
 
@@ -244,9 +285,14 @@ export default function Home() {
 
   useEffect(() => {
     if (!menuTagAberto) return;
-    const fechar = () => setMenuTagAberto(null);
-    document.addEventListener("click", fechar);
-    return () => document.removeEventListener("click", fechar);
+    const fechar = (e: MouseEvent) => {
+      if (menuTagRef.current && menuTagRef.current.contains(e.target as Node)) return;
+      setMenuTagAberto(null);
+      setNovaTagAberta(false);
+      setNovaTagErro("");
+    };
+    document.addEventListener("mousedown", fechar);
+    return () => document.removeEventListener("mousedown", fechar);
   }, [menuTagAberto]);
 
   useEffect(() => {
@@ -288,12 +334,27 @@ export default function Home() {
     }
   };
 
-  const contatosFiltrados = contatos.filter(
-    (c) =>
-      (c.nome.toLowerCase().includes(busca.toLowerCase()) ||
-        c.numero.includes(busca)) &&
-      (filtroTag === null || c.tags.some((t) => t.id === filtroTag))
-  );
+  const paraDataLocal = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate()
+    ).padStart(2, "0")}`;
+  };
+
+  const contatosFiltrados = contatos.filter((c) => {
+    if (!(c.nome.toLowerCase().includes(busca.toLowerCase()) || c.numero.includes(busca))) {
+      return false;
+    }
+    if (filtroTag !== null && !c.tags.some((t) => t.id === filtroTag)) return false;
+    if (apenasNaoLidas && c.nao_lidas === 0) return false;
+    if (filtroEnvioDe || filtroEnvioAte) {
+      if (!c.ultimo_envio) return false;
+      const dataEnvio = paraDataLocal(c.ultimo_envio);
+      if (filtroEnvioDe && dataEnvio < filtroEnvioDe) return false;
+      if (filtroEnvioAte && dataEnvio > filtroEnvioAte) return false;
+    }
+    return true;
+  });
 
   // ── Disparos ───────────────────────────────────────────────
   const [csvTexto, setCsvTexto] = useState("");
@@ -615,35 +676,78 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Abas de filtro por tag */}
-            {tags.length > 0 && (
-              <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto">
-                <button
-                  onClick={() => setFiltroTag(null)}
-                  className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
-                    filtroTag === null
-                      ? "bg-[#FFA300] border-[#FFA300] text-white"
-                      : "border-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
-                  }`}
-                >
-                  Todas
-                </button>
-                {tags.map((t) => (
+            {/* Filtro de não lidas + abas de filtro por tag */}
+            <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto">
+              <button
+                onClick={() => setApenasNaoLidas((v) => !v)}
+                className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                  apenasNaoLidas
+                    ? "bg-[#FFA300] border-[#FFA300] text-white"
+                    : "border-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
+                }`}
+              >
+                Não lidas
+              </button>
+              {tags.length > 0 && (
+                <>
                   <button
-                    key={t.id}
-                    onClick={() => setFiltroTag(filtroTag === t.id ? null : t.id)}
-                    className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors"
-                    style={
-                      filtroTag === t.id
-                        ? { backgroundColor: t.cor, borderColor: t.cor, color: "#fff" }
-                        : { borderColor: "#2a3942", color: t.cor }
-                    }
+                    onClick={() => setFiltroTag(null)}
+                    className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                      filtroTag === null
+                        ? "bg-[#FFA300] border-[#FFA300] text-white"
+                        : "border-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
+                    }`}
                   >
-                    {t.nome}
+                    Todas as tags
                   </button>
-                ))}
-              </div>
-            )}
+                  {tags.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => setFiltroTag(filtroTag === t.id ? null : t.id)}
+                      className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors"
+                      style={
+                        filtroTag === t.id
+                          ? { backgroundColor: t.cor, borderColor: t.cor, color: "#fff" }
+                          : { borderColor: "#2a3942", color: t.cor }
+                      }
+                    >
+                      {t.nome}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+
+            {/* Filtro por data do último envio nosso */}
+            <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap">
+              <span className="text-[10px] text-[#8696a0] uppercase tracking-wide">Último envio meu:</span>
+              <input
+                type="date"
+                value={filtroEnvioDe}
+                onChange={(e) => setFiltroEnvioDe(e.target.value)}
+                className="bg-[#202c33] text-[#e9edef] text-xs rounded px-2 py-1 outline-none border border-[#2a3942] focus:border-[#FFA300] [color-scheme:dark]"
+                title="A partir de"
+              />
+              <span className="text-[10px] text-[#8696a0]">até</span>
+              <input
+                type="date"
+                value={filtroEnvioAte}
+                onChange={(e) => setFiltroEnvioAte(e.target.value)}
+                className="bg-[#202c33] text-[#e9edef] text-xs rounded px-2 py-1 outline-none border border-[#2a3942] focus:border-[#FFA300] [color-scheme:dark]"
+                title="Até"
+              />
+              {(filtroEnvioDe || filtroEnvioAte) && (
+                <button
+                  onClick={() => {
+                    setFiltroEnvioDe("");
+                    setFiltroEnvioAte("");
+                  }}
+                  className="text-[10px] text-[#8696a0] hover:text-[#e9edef] transition-colors"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
 
             <div className="flex-1 overflow-y-auto">
               {contatosFiltrados.length === 0 ? (
@@ -660,6 +764,7 @@ export default function Home() {
                 contatosFiltrados.map((c) => (
                   <div
                     key={c.numero}
+                    ref={menuTagAberto === c.numero ? menuTagRef : undefined}
                     onClick={() => selecionarContato(c)}
                     className={`relative flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#202c33] transition-colors ${
                       contatoAtivo?.numero === c.numero ? "bg-[#2a3942]" : ""
@@ -728,6 +833,59 @@ export default function Home() {
                             </button>
                           );
                         })}
+
+                        <div className="border-t border-[#2a3942] mt-1 pt-1">
+                          {!novaTagAberta ? (
+                            <button
+                              onClick={() => setNovaTagAberta(true)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-[#8696a0] hover:text-[#FFA300] hover:bg-[#2a3942] transition-colors"
+                            >
+                              <span className="w-3 h-3 flex items-center justify-center flex-shrink-0">+</span>
+                              Nova tag
+                            </button>
+                          ) : (
+                            <div className="px-3 py-2 flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={novaTagCor}
+                                  onChange={(e) => setNovaTagCor(e.target.value)}
+                                  className="w-6 h-6 rounded border border-[#2a3942] bg-transparent cursor-pointer flex-shrink-0"
+                                  title="Cor da tag"
+                                />
+                                <input
+                                  autoFocus
+                                  value={novaTagNome}
+                                  onChange={(e) => setNovaTagNome(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") criarTag(c.numero);
+                                  }}
+                                  placeholder="Nome da tag"
+                                  className="flex-1 min-w-0 bg-[#111b21] text-[#e9edef] placeholder-[#8696a0] text-xs rounded px-2 py-1 outline-none border border-[#2a3942] focus:border-[#FFA300]"
+                                />
+                              </div>
+                              {novaTagErro && <p className="text-[10px] text-red-400">{novaTagErro}</p>}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => criarTag(c.numero)}
+                                  disabled={!novaTagNome.trim() || criandoTag}
+                                  className="flex-1 bg-[#FFA300] text-white text-xs font-medium rounded px-2 py-1 disabled:opacity-40 hover:bg-[#FFB020] transition-colors"
+                                >
+                                  {criandoTag ? "Criando…" : "Criar e atribuir"}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setNovaTagAberta(false);
+                                    setNovaTagErro("");
+                                  }}
+                                  className="text-xs text-[#8696a0] hover:text-[#e9edef] px-2 transition-colors"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
