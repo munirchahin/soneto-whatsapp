@@ -191,6 +191,7 @@ export default function Home() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [filtroTag, setFiltroTag] = useState<string | null>(null);
   const [menuTagAberto, setMenuTagAberto] = useState<string | null>(null);
+  const menuTagRef = useRef<HTMLDivElement>(null);
 
   // ── Filtros de não lidas e data do último envio ──────────────
   const [apenasNaoLidas, setApenasNaoLidas] = useState(false);
@@ -284,13 +285,14 @@ export default function Home() {
 
   useEffect(() => {
     if (!menuTagAberto) return;
-    const fechar = () => {
+    const fechar = (e: MouseEvent) => {
+      if (menuTagRef.current && menuTagRef.current.contains(e.target as Node)) return;
       setMenuTagAberto(null);
       setNovaTagAberta(false);
       setNovaTagErro("");
     };
-    document.addEventListener("click", fechar);
-    return () => document.removeEventListener("click", fechar);
+    document.addEventListener("mousedown", fechar);
+    return () => document.removeEventListener("mousedown", fechar);
   }, [menuTagAberto]);
 
   useEffect(() => {
@@ -762,6 +764,7 @@ export default function Home() {
                 contatosFiltrados.map((c) => (
                   <div
                     key={c.numero}
+                    ref={menuTagAberto === c.numero ? menuTagRef : undefined}
                     onClick={() => selecionarContato(c)}
                     className={`relative flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#202c33] transition-colors ${
                       contatoAtivo?.numero === c.numero ? "bg-[#2a3942]" : ""
