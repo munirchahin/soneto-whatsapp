@@ -33,12 +33,19 @@ interface Mensagem {
   lida: boolean;
 }
 
+interface Tag {
+  id: string;
+  nome: string;
+  cor: string;
+}
+
 interface Contato {
   numero: string;
   nome: string;
   ultima_mensagem: string;
   ultimo_timestamp: string;
   nao_lidas: number;
+  tags: Tag[];
 }
 
 interface ContatoDisparo {
@@ -179,6 +186,34 @@ export default function Home() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Tags ───────────────────────────────────────────────────
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [filtroTag, setFiltroTag] = useState<string | null>(null);
+  const [menuTagAberto, setMenuTagAberto] = useState<string | null>(null);
+
+  const carregarTags = async () => {
+    try {
+      const res = await fetch("/api/tags");
+      const data = await res.json();
+      if (Array.isArray(data)) setTags(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const alternarTag = async (numero: string, tagId: string, temTag: boolean) => {
+    try {
+      await fetch(`/api/contacts/${encodeURIComponent(numero)}/tags`, {
+        method: temTag ? "DELETE" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tag_id: tagId }),
+      });
+      await carregarContatos();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const carregarContatos = async () => {
     try {
       const res = await fetch("/api/contacts");
@@ -204,7 +239,15 @@ export default function Home() {
 
   useEffect(() => {
     carregarContatos();
+    carregarTags();
   }, []);
+
+  useEffect(() => {
+    if (!menuTagAberto) return;
+    const fechar = () => setMenuTagAberto(null);
+    document.addEventListener("click", fechar);
+    return () => document.removeEventListener("click", fechar);
+  }, [menuTagAberto]);
 
   useEffect(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -247,8 +290,9 @@ export default function Home() {
 
   const contatosFiltrados = contatos.filter(
     (c) =>
-      c.nome.toLowerCase().includes(busca.toLowerCase()) ||
-      c.numero.includes(busca)
+      (c.nome.toLowerCase().includes(busca.toLowerCase()) ||
+        c.numero.includes(busca)) &&
+      (filtroTag === null || c.tags.some((t) => t.id === filtroTag))
   );
 
   // ── Disparos ───────────────────────────────────────────────
@@ -571,6 +615,36 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Abas de filtro por tag */}
+            {tags.length > 0 && (
+              <div className="flex items-center gap-1.5 px-3 pb-2 overflow-x-auto">
+                <button
+                  onClick={() => setFiltroTag(null)}
+                  className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                    filtroTag === null
+                      ? "bg-[#FFA300] border-[#FFA300] text-white"
+                      : "border-[#2a3942] text-[#8696a0] hover:text-[#e9edef]"
+                  }`}
+                >
+                  Todas
+                </button>
+                {tags.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setFiltroTag(filtroTag === t.id ? null : t.id)}
+                    className="flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors"
+                    style={
+                      filtroTag === t.id
+                        ? { backgroundColor: t.cor, borderColor: t.cor, color: "#fff" }
+                        : { borderColor: "#2a3942", color: t.cor }
+                    }
+                  >
+                    {t.nome}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex-1 overflow-y-auto">
               {contatosFiltrados.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-[#8696a0] text-sm gap-2 pb-20">
@@ -587,7 +661,7 @@ export default function Home() {
                   <div
                     key={c.numero}
                     onClick={() => selecionarContato(c)}
-                    className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#202c33] transition-colors ${
+                    className={`relative flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[#202c33] transition-colors ${
                       contatoAtivo?.numero === c.numero ? "bg-[#2a3942]" : ""
                     }`}
                   >
@@ -609,7 +683,53 @@ export default function Home() {
                           </span>
                         )}
                       </div>
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        {c.tags.map((t) => (
+                          <span
+                            key={t.id}
+                            className="text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                            style={{ backgroundColor: t.cor + "25", color: t.cor }}
+                          >
+                            {t.nome}
+                          </span>
+                        ))}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuTagAberto(menuTagAberto === c.numero ? null : c.numero);
+                          }}
+                          className="text-[10px] text-[#8696a0] hover:text-[#FFA300] transition-colors px-1"
+                          title="Gerenciar tags"
+                        >
+                          🏷️+
+                        </button>
+                      </div>
                     </div>
+
+                    {menuTagAberto === c.numero && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute z-10 top-full left-4 mt-1 bg-[#233138] border border-[#2a3942] rounded-lg shadow-xl py-1 w-56"
+                      >
+                        {tags.map((t) => {
+                          const temTag = c.tags.some((ct) => ct.id === t.id);
+                          return (
+                            <button
+                              key={t.id}
+                              onClick={() => alternarTag(c.numero, t.id, temTag)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[#2a3942] transition-colors"
+                            >
+                              <span
+                                className="w-3 h-3 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: t.cor }}
+                              />
+                              <span className="flex-1 text-[#e9edef]">{t.nome}</span>
+                              {temTag && <span className="text-[#FFA300]">✓</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 ))
               )}
