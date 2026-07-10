@@ -21,10 +21,17 @@ export interface Mensagem {
   wa_message_id?: string;
 }
 
+export interface Tag {
+  id: string;
+  nome: string;
+  cor: string;
+}
+
 export interface Contato {
   numero: string;
   nome: string;
   ultima_mensagem: string;
   ultimo_timestamp: string;
   nao_lidas: number;
+  tags: Tag[];
 }

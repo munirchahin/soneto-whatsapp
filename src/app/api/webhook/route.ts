@@ -81,90 +81,153 @@ async function handleMediaMessage(
   return uploadMedia(buffer, contentType, path);
 }
 
-// POST — recebe mensagens do WhatsApp
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const entry = body?.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
+// Decodifica o corpo de uma mensagem recebida em texto legível.
+// Sempre retorna algo útil — nunca descarta os dados originais, mesmo para
+// tipos ainda não mapeados explicitamente.
+async function decodeMessageText(msg: Record<string, unknown>): Promise<string> {
+  const type = msg.type as string;
 
-    if (!value) return NextResponse.json({ ok: true });
+  switch (type) {
+    case "text":
+      return (msg.text as { body?: string })?.body ?? "";
 
-    const messages = value.messages ?? [];
-    const contacts = value.contacts ?? [];
+    case "image": {
+      try {
+        const image = msg.image as { id: string; caption?: string };
+        const publicUrl = await handleMediaMessage(image.id, "image");
+        return encodeMediaTexto("image", publicUrl, image.caption ?? "");
+      } catch (e) {
+        return `[Imagem não disponível: ${e}]`;
+      }
+    }
 
-    for (const msg of messages) {
-      const numero: string = msg.from;
-      const wa_message_id: string = msg.id;
-      const timestamp = new Date(parseInt(msg.timestamp) * 1000).toISOString();
+    case "video": {
+      try {
+        const video = msg.video as { id: string; caption?: string };
+        const publicUrl = await handleMediaMessage(video.id, "video");
+        return encodeMediaTexto("video", publicUrl, video.caption ?? "");
+      } catch (e) {
+        return `[Vídeo não disponível: ${e}]`;
+      }
+    }
 
-      const contato = contacts.find((c: { wa_id: string }) => c.wa_id === numero);
+    case "audio": {
+      try {
+        const audio = msg.audio as { id: string };
+        const publicUrl = await handleMediaMessage(audio.id, "audio");
+        return encodeMediaTexto("audio", publicUrl, "");
+      } catch (e) {
+        return `[Áudio não disponível: ${e}]`;
+      }
+    }
+
+    case "document": {
+      try {
+        const document = msg.document as { id: string; filename?: string };
+        const filename = document.filename ?? `doc_${document.id}`;
+        const publicUrl = await handleMediaMessage(document.id, "document", filename);
+        return encodeMediaTexto("document", publicUrl, filename);
+      } catch (e) {
+        return `[Documento não disponível: ${e}]`;
+      }
+    }
+
+    case "sticker": {
+      try {
+        const sticker = msg.sticker as { id: string };
+        const publicUrl = await handleMediaMessage(sticker.id, "sticker");
+        return encodeMediaTexto("sticker", publicUrl, "");
+      } catch (e) {
+        return `[Sticker não disponível: ${e}]`;
+      }
+    }
+
+    case "location": {
+      const { latitude, longitude, name, address } =
+        (msg.location as { latitude?: number; longitude?: number; name?: string; address?: string }) ?? {};
+      return `📍 ${name ?? "Localização"}\n${address ?? ""}\nhttps://maps.google.com/?q=${latitude},${longitude}`;
+    }
+
+    // ── Reação a uma mensagem (emoji) ───────────────────────
+    case "reaction": {
+      const reaction = msg.reaction as { emoji?: string; message_id?: string };
+      return reaction?.emoji
+        ? `${reaction.emoji} (reagiu a uma mensagem)`
+        : "(removeu a reação a uma mensagem)";
+    }
+
+    // ── Contato compartilhado ────────────────────────────────
+    case "contacts": {
+      const shared = (msg.contacts as { name?: { formatted_name?: string }; phones?: { phone?: string }[] }[]) ?? [];
+      const linhas = shared.map((c) => {
+        const nomeContato = c.name?.formatted_name ?? "Contato";
+        const telefones = (c.phones ?? []).map((p) => p.phone).filter(Boolean).join(", ");
+        return telefones ? `${nomeContato} — ${telefones}` : nomeContato;
+      });
+      return `📇 Contato compartilhado:\n${linhas.join("\n")}`;
+    }
+
+    // ── Clique em botão de template (quick reply) ───────────
+    case "button": {
+      const button = msg.button as { text?: string; payload?: string };
+      return `[Botão] ${button?.text ?? button?.payload ?? ""}`;
+    }
+
+    // ── Resposta a mensagem interativa (lista/botão) ────────
+    case "interactive": {
+      const interactive = msg.interactive as {
+        type?: string;
+        button_reply?: { title?: string };
+        list_reply?: { title?: string; description?: string };
+      };
+      if (interactive?.type === "button_reply") {
+        return `[Botão] ${interactive.button_reply?.title ?? ""}`;
+      }
+      if (interactive?.type === "list_reply") {
+        return `[Lista] ${interactive.list_reply?.title ?? ""}${
+          interactive.list_reply?.description ? ` — ${interactive.list_reply.description}` : ""
+        }`;
+      }
+      return `[Interativo: ${JSON.stringify(interactive).slice(0, 200)}]`;
+    }
+
+    // ── Pedido via catálogo ──────────────────────────────────
+    case "order": {
+      const order = msg.order as { product_items?: unknown[] };
+      return `🛒 Pedido via catálogo (${order?.product_items?.length ?? 0} item(ns))`;
+    }
+
+    // ── Notificação de sistema (ex.: troca de número) ───────
+    case "system": {
+      const system = msg.system as { body?: string };
+      return `ℹ️ ${system?.body ?? "Notificação do sistema"}`;
+    }
+
+    // ── Qualquer tipo ainda não mapeado: nunca descartar os
+    // dados — preserva um dump legível para investigação manual.
+    default:
+      return `[Mensagem tipo "${type}" não mapeada: ${JSON.stringify(msg).slice(0, 500)}]`;
+  }
+}
+
+async function processValue(value: {
+  messages?: Record<string, unknown>[];
+  contacts?: { wa_id: string; profile?: { name?: string } }[];
+  statuses?: { status: string; id: string }[];
+}) {
+  const messages = value.messages ?? [];
+  const contacts = value.contacts ?? [];
+
+  for (const msg of messages) {
+    try {
+      const numero = msg.from as string;
+      const wa_message_id = msg.id as string;
+      const timestamp = new Date(parseInt(msg.timestamp as string) * 1000).toISOString();
+
+      const contato = contacts.find((c) => c.wa_id === numero);
       const nome: string = contato?.profile?.name ?? numero;
 
-      let texto = "";
-
-      // ── Text ───────────────────────────────────────────────
-      if (msg.type === "text") {
-        texto = msg.text?.body ?? "";
-
-      // ── Image ──────────────────────────────────────────────
-      } else if (msg.type === "image") {
-        try {
-          const publicUrl = await handleMediaMessage(msg.image.id, "image");
-          const caption = msg.image?.caption ?? "";
-          texto = encodeMediaTexto("image", publicUrl, caption);
-        } catch (e) {
-          texto = `[Imagem não disponível: ${e}]`;
-        }
-
-      // ── Video ──────────────────────────────────────────────
-      } else if (msg.type === "video") {
-        try {
-          const publicUrl = await handleMediaMessage(msg.video.id, "video");
-          const caption = msg.video?.caption ?? "";
-          texto = encodeMediaTexto("video", publicUrl, caption);
-        } catch (e) {
-          texto = `[Vídeo não disponível: ${e}]`;
-        }
-
-      // ── Audio / Voice ──────────────────────────────────────
-      } else if (msg.type === "audio") {
-        try {
-          const publicUrl = await handleMediaMessage(msg.audio.id, "audio");
-          texto = encodeMediaTexto("audio", publicUrl, "");
-        } catch (e) {
-          texto = `[Áudio não disponível: ${e}]`;
-        }
-
-      // ── Document ───────────────────────────────────────────
-      } else if (msg.type === "document") {
-        try {
-          const filename = msg.document?.filename ?? `doc_${msg.document.id}`;
-          const publicUrl = await handleMediaMessage(msg.document.id, "document", filename);
-          texto = encodeMediaTexto("document", publicUrl, filename);
-        } catch (e) {
-          texto = `[Documento não disponível: ${e}]`;
-        }
-
-      // ── Sticker ────────────────────────────────────────────
-      } else if (msg.type === "sticker") {
-        try {
-          const publicUrl = await handleMediaMessage(msg.sticker.id, "sticker");
-          texto = encodeMediaTexto("sticker", publicUrl, "");
-        } catch (e) {
-          texto = `[Sticker não disponível: ${e}]`;
-        }
-
-      // ── Location ───────────────────────────────────────────
-      } else if (msg.type === "location") {
-        const { latitude, longitude, name, address } = msg.location ?? {};
-        texto = `📍 ${name ?? "Localização"}\n${address ?? ""}\nhttps://maps.google.com/?q=${latitude},${longitude}`;
-
-      // ── Unsupported ────────────────────────────────────────
-      } else {
-        texto = `[Tipo de mensagem não suportado: ${msg.type}]`;
-      }
+      const texto = await decodeMessageText(msg);
 
       await supabaseAdmin.from("mensagens").insert({
         numero,
@@ -183,12 +246,33 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         console.error("Falha ao notificar por email:", e);
       }
+    } catch (e) {
+      // Uma mensagem malformada não pode derrubar o resto do lote.
+      console.error("Falha ao processar mensagem individual do webhook:", e, msg);
     }
+  }
 
-    // Status de entrega
-    const statuses = value.statuses ?? [];
-    for (const status of statuses) {
-      console.log(`📬 Status ${status.status} para msg ${status.id}`);
+  // Status de entrega
+  const statuses = value.statuses ?? [];
+  for (const status of statuses) {
+    console.log(`📬 Status ${status.status} para msg ${status.id}`);
+  }
+}
+
+// POST — recebe mensagens do WhatsApp
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+
+    // A Meta pode enviar múltiplos "entry" e múltiplos "changes" em uma
+    // única chamada (ex.: rajada de respostas após um disparo em massa).
+    // Processar só entry[0]/changes[0] descartaria o resto silenciosamente.
+    const entries = body?.entry ?? [];
+    for (const entry of entries) {
+      const changes = entry?.changes ?? [];
+      for (const change of changes) {
+        if (change?.value) await processValue(change.value);
+      }
     }
 
     return NextResponse.json({ ok: true });
