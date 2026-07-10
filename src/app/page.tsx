@@ -214,6 +214,40 @@ export default function Home() {
     }
   };
 
+  const [novaTagAberta, setNovaTagAberta] = useState(false);
+  const [novaTagNome, setNovaTagNome] = useState("");
+  const [novaTagCor, setNovaTagCor] = useState("#FFA300");
+  const [criandoTag, setCriandoTag] = useState(false);
+  const [novaTagErro, setNovaTagErro] = useState("");
+
+  const criarTag = async (numero: string) => {
+    if (!novaTagNome.trim() || criandoTag) return;
+    setCriandoTag(true);
+    setNovaTagErro("");
+    try {
+      const res = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nome: novaTagNome.trim(), cor: novaTagCor }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setNovaTagErro(data?.error || "Erro ao criar tag");
+        return;
+      }
+      await carregarTags();
+      await alternarTag(numero, data.id, false);
+      setNovaTagNome("");
+      setNovaTagCor("#FFA300");
+      setNovaTagAberta(false);
+    } catch (e) {
+      console.error(e);
+      setNovaTagErro("Erro ao criar tag");
+    } finally {
+      setCriandoTag(false);
+    }
+  };
+
   const carregarContatos = async () => {
     try {
       const res = await fetch("/api/contacts");
@@ -244,7 +278,11 @@ export default function Home() {
 
   useEffect(() => {
     if (!menuTagAberto) return;
-    const fechar = () => setMenuTagAberto(null);
+    const fechar = () => {
+      setMenuTagAberto(null);
+      setNovaTagAberta(false);
+      setNovaTagErro("");
+    };
     document.addEventListener("click", fechar);
     return () => document.removeEventListener("click", fechar);
   }, [menuTagAberto]);
@@ -728,6 +766,59 @@ export default function Home() {
                             </button>
                           );
                         })}
+
+                        <div className="border-t border-[#2a3942] mt-1 pt-1">
+                          {!novaTagAberta ? (
+                            <button
+                              onClick={() => setNovaTagAberta(true)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left text-[#8696a0] hover:text-[#FFA300] hover:bg-[#2a3942] transition-colors"
+                            >
+                              <span className="w-3 h-3 flex items-center justify-center flex-shrink-0">+</span>
+                              Nova tag
+                            </button>
+                          ) : (
+                            <div className="px-3 py-2 flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={novaTagCor}
+                                  onChange={(e) => setNovaTagCor(e.target.value)}
+                                  className="w-6 h-6 rounded border border-[#2a3942] bg-transparent cursor-pointer flex-shrink-0"
+                                  title="Cor da tag"
+                                />
+                                <input
+                                  autoFocus
+                                  value={novaTagNome}
+                                  onChange={(e) => setNovaTagNome(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") criarTag(c.numero);
+                                  }}
+                                  placeholder="Nome da tag"
+                                  className="flex-1 min-w-0 bg-[#111b21] text-[#e9edef] placeholder-[#8696a0] text-xs rounded px-2 py-1 outline-none border border-[#2a3942] focus:border-[#FFA300]"
+                                />
+                              </div>
+                              {novaTagErro && <p className="text-[10px] text-red-400">{novaTagErro}</p>}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => criarTag(c.numero)}
+                                  disabled={!novaTagNome.trim() || criandoTag}
+                                  className="flex-1 bg-[#FFA300] text-white text-xs font-medium rounded px-2 py-1 disabled:opacity-40 hover:bg-[#FFB020] transition-colors"
+                                >
+                                  {criandoTag ? "Criando…" : "Criar e atribuir"}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setNovaTagAberta(false);
+                                    setNovaTagErro("");
+                                  }}
+                                  className="text-xs text-[#8696a0] hover:text-[#e9edef] px-2 transition-colors"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
