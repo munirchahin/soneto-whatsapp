@@ -47,6 +47,7 @@ interface Contato {
   ultimo_envio: string | null;
   nao_lidas: number;
   tags: Tag[];
+  bloqueado: boolean;
 }
 
 interface ContatoDisparo {
@@ -214,6 +215,17 @@ export default function Home() {
         method: temTag ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tag_id: tagId }),
+      });
+      await carregarContatos();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const alternarBloqueio = async (numero: string, bloqueado: boolean) => {
+    try {
+      await fetch(`/api/contacts/${encodeURIComponent(numero)}/block`, {
+        method: bloqueado ? "DELETE" : "POST",
       });
       await carregarContatos();
     } catch (e) {
@@ -789,6 +801,11 @@ export default function Home() {
                         )}
                       </div>
                       <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        {c.bloqueado && (
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400">
+                            Bloqueado
+                          </span>
+                        )}
                         {c.tags.map((t) => (
                           <span
                             key={t.id}
@@ -807,6 +824,18 @@ export default function Home() {
                           title="Gerenciar tags"
                         >
                           🏷️+
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            alternarBloqueio(c.numero, c.bloqueado);
+                          }}
+                          className={`text-[10px] transition-colors px-1 ${
+                            c.bloqueado ? "text-red-400 hover:text-red-300" : "text-[#8696a0] hover:text-red-400"
+                          }`}
+                          title={c.bloqueado ? "Desbloquear número" : "Bloquear número"}
+                        >
+                          🚫
                         </button>
                       </div>
                     </div>

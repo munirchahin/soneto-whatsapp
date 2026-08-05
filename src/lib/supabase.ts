@@ -34,4 +34,5 @@ export interface Contato {
   ultimo_timestamp: string;
   nao_lidas: number;
   tags: Tag[];
+  bloqueado: boolean;
 }
