@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import type { Tag } from "@/lib/supabase";
 
+async function buscarNumerosBloqueados(): Promise<Set<string>> {
+  const { data, error } = await supabaseAdmin.from("numeros_bloqueados").select("numero");
+  if (error || !data) return new Set();
+  return new Set(data.map((r) => r.numero));
+}
+
 async function buscarTagsPorNumero(): Promise<Map<string, Tag[]>> {
   const { data, error } = await supabaseAdmin
     .from("contato_tags")
@@ -24,6 +30,7 @@ async function buscarTagsPorNumero(): Promise<Map<string, Tag[]>> {
 export async function GET() {
   try {
     const tagsPorNumero = await buscarTagsPorNumero();
+    const numerosBloqueados = await buscarNumerosBloqueados();
 
     // Busca o último estado de cada contato
     const { data, error } = await supabaseAdmin.rpc("get_contatos");
@@ -48,6 +55,7 @@ export async function GET() {
           ultimo_envio: string | null;
           nao_lidas: number;
           tags: Tag[];
+          bloqueado: boolean;
         }
       >();
 
@@ -61,6 +69,7 @@ export async function GET() {
             ultimo_envio: null,
             nao_lidas: 0,
             tags: tagsPorNumero.get(m.numero) ?? [],
+            bloqueado: numerosBloqueados.has(m.numero),
           });
         }
         const c = map.get(m.numero)!;
@@ -87,6 +96,7 @@ export async function GET() {
       ...c,
       ultimo_envio: c.ultimo_envio ?? null,
       tags: tagsPorNumero.get(c.numero) ?? [],
+      bloqueado: numerosBloqueados.has(c.numero),
     }));
 
     return NextResponse.json(contatos);

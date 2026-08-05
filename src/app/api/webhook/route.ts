@@ -237,6 +237,15 @@ const TERMOS_RESPOSTA_AUTOMATICA = [
   "aguarde que em breve",
 ];
 
+async function isNumeroBloqueado(numero: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("numeros_bloqueados")
+    .select("numero")
+    .eq("numero", numero)
+    .maybeSingle();
+  return !!data;
+}
+
 async function buscarIdDaTag(nome: string): Promise<string | null> {
   const { data } = await supabaseAdmin.from("tags").select("id").eq("nome", nome).maybeSingle();
   return data?.id ?? null;
@@ -295,6 +304,12 @@ async function processValue(value: {
   for (const msg of messages) {
     try {
       const numero = msg.from as string;
+
+      if (await isNumeroBloqueado(numero)) {
+        console.log(`🚫 Mensagem de ${numero} descartada (número bloqueado)`);
+        continue;
+      }
+
       const wa_message_id = msg.id as string;
       const timestamp = new Date(parseInt(msg.timestamp as string) * 1000).toISOString();
 
