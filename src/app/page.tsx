@@ -186,7 +186,14 @@ export default function Home() {
   const [enviando, setEnviando] = useState(false);
   const [busca, setBusca] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const estaPertoDoFim = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  };
 
   // ── Tags ───────────────────────────────────────────────────
   const [tags, setTags] = useState<Tag[]>([]);
@@ -277,13 +284,16 @@ export default function Home() {
     }
   };
 
-  const carregarMensagens = async (numero: string) => {
+  const carregarMensagens = async (numero: string, forceScroll = false) => {
     try {
+      const deviaDescer = forceScroll || estaPertoDoFim();
       const res = await fetch(`/api/messages/${encodeURIComponent(numero)}`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setMensagens(data);
-        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+        if (deviaDescer) {
+          setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -321,7 +331,7 @@ export default function Home() {
 
   const selecionarContato = (c: Contato) => {
     setContatoAtivo(c);
-    carregarMensagens(c.numero);
+    carregarMensagens(c.numero, true);
   };
 
   const enviarMensagem = async () => {
@@ -338,7 +348,7 @@ export default function Home() {
         }),
       });
       setTexto("");
-      await carregarMensagens(contatoAtivo.numero);
+      await carregarMensagens(contatoAtivo.numero, true);
     } catch (e) {
       console.error(e);
     } finally {
@@ -937,7 +947,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-[5%] py-4 bg-[#0d1418]">
+                <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-[5%] py-4 bg-[#0d1418]">
                   {mensagens.map((m) => (
                     <div
                       key={m.id}
