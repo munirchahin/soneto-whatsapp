@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 
 // When embedded in WordPress with admin bar, receive offset via postMessage
 // WordPress HTML widget sends: postMessage({ type: 'adminBarHeight', height: 32 }, '*')
@@ -59,11 +59,39 @@ interface WaTemplate {
 
 type Aba = "conversas" | "disparos";
 
+// ── Formatação estilo WhatsApp ────────────────────────────────────────────────
+// *negrito*   _itálico_   ~tachado~   ```monospace```
+const WA_RULES: { regex: RegExp; wrap: (inner: ReactNode, k: string) => ReactNode }[] = [
+  { regex: /```([\s\S]+?)```/, wrap: (inner, k) => <code key={k} className="font-mono text-[0.9em] bg-black/25 rounded px-1 py-0.5">{inner}</code> },
+  { regex: /\*(.+?)\*/, wrap: (inner, k) => <strong key={k}>{inner}</strong> },
+  { regex: /_(.+?)_/, wrap: (inner, k) => <em key={k}>{inner}</em> },
+  { regex: /~(.+?)~/, wrap: (inner, k) => <s key={k}>{inner}</s> },
+];
+
+// Converte os marcadores do WhatsApp em elementos estilizados (suporta aninhamento).
+function formatWa(text: string, kp = "f"): ReactNode[] {
+  let best: { idx: number; rule: (typeof WA_RULES)[number]; match: RegExpExecArray } | null = null;
+  for (const rule of WA_RULES) {
+    const m = rule.regex.exec(text);
+    if (m && m.index !== undefined && (best === null || m.index < best.idx)) {
+      best = { idx: m.index, rule, match: m };
+    }
+  }
+  if (!best) return [text];
+  const before = text.slice(0, best.idx);
+  const after = text.slice(best.idx + best.match[0].length);
+  return [
+    ...(before ? formatWa(before, kp + "b") : []),
+    best.rule.wrap(formatWa(best.match[1], kp + "i"), `${kp}-${best.idx}`),
+    ...(after ? formatWa(after, kp + "a") : []),
+  ];
+}
+
 // ── Media message renderer ────────────────────────────────────────────────────
 // Formato: __MEDIA__{type}__{url}__{extra}
 function MediaBubble({ texto }: { texto: string }) {
   const match = texto.match(/^__MEDIA__(\w+)__(.+?)__([\s\S]*)$/);
-  if (!match) return <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{texto}</p>;
+  if (!match) return <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{formatWa(texto)}</p>;
 
   const [, type, url, extra] = match;
 
@@ -77,7 +105,7 @@ function MediaBubble({ texto }: { texto: string }) {
           className="rounded-lg max-w-[260px] max-h-[300px] object-cover cursor-pointer"
           onClick={() => window.open(url, "_blank")}
         />
-        {extra && <p className="text-[#e9edef] text-sm mt-1">{extra}</p>}
+        {extra && <p className="text-[#e9edef] text-sm mt-1 whitespace-pre-wrap">{formatWa(extra)}</p>}
       </div>
     );
   }
@@ -90,7 +118,7 @@ function MediaBubble({ texto }: { texto: string }) {
           controls
           className="rounded-lg max-w-[260px] max-h-[300px]"
         />
-        {extra && <p className="text-[#e9edef] text-sm mt-1">{extra}</p>}
+        {extra && <p className="text-[#e9edef] text-sm mt-1 whitespace-pre-wrap">{formatWa(extra)}</p>}
       </div>
     );
   }
@@ -131,7 +159,7 @@ function MediaBubble({ texto }: { texto: string }) {
   }
 
   // fallback
-  return <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{texto}</p>;
+  return <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{formatWa(texto)}</p>;
 }
 
 function timeLabel(ts: string) {
@@ -274,15 +302,29 @@ export default function Home() {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [templateSelecionado, setTemplateSelecionado] = useState<WaTemplate | null>(null);
 
+  // Ordem de exibição preferida (o resto mantém a ordem que a Meta retornou)
+  const TEMPLATE_ORDER = ["marketing_pos_venda", "aniversario"];
+
+  const ordenarTemplates = (data: WaTemplate[]): WaTemplate[] =>
+    [...data].sort((a, b) => {
+      const ia = TEMPLATE_ORDER.indexOf(a.name);
+      const ib = TEMPLATE_ORDER.indexOf(b.name);
+      if (ia === -1 && ib === -1) return 0;
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+
   const carregarTemplates = async () => {
     setLoadingTemplates(true);
     try {
       const res = await fetch("/api/templates");
       const data = await res.json();
       if (Array.isArray(data)) {
-        setTemplates(data);
+        const ordenados = ordenarTemplates(data);
+        setTemplates(ordenados);
         // Auto-select first approved template
-        const firstApproved = data.find((t: WaTemplate) => t.status === "APPROVED");
+        const firstApproved = ordenados.find((t: WaTemplate) => t.status === "APPROVED");
         if (firstApproved) setTemplateSelecionado(firstApproved);
       }
     } catch (e) {
@@ -793,7 +835,7 @@ export default function Home() {
                   </div>
                   <div className="flex justify-end">
                     <div className="bg-[#7A4200] rounded-lg rounded-tr-none px-3 py-2 max-w-[85%]">
-                      <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{preview}</p>
+                      <p className="text-[#e9edef] text-sm whitespace-pre-wrap">{formatWa(preview)}</p>
                     </div>
                   </div>
                 </div>

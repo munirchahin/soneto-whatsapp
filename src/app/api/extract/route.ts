@@ -62,8 +62,11 @@ export async function POST(req: NextRequest) {
     for (const linha of linhas) {
       const m = PHONE_RE.exec(linha);
       if (!m || m.index === undefined) continue;
-      const nome = linha.slice(0, m.index).replace(/\s+/g, " ").trim();
-      if (!nome || /^nome$/i.test(nome) || /celular/i.test(nome)) continue;
+      const nomeCompleto = linha.slice(0, m.index).replace(/\s+/g, " ").trim();
+      if (!nomeCompleto || /^nome$/i.test(nomeCompleto) || /celular/i.test(nomeCompleto)) continue;
+      // Apenas o primeiro nome, de CAIXA ALTA para Primeira maiúscula
+      const primeiro = nomeCompleto.split(" ")[0];
+      const nome = primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase();
       const numero = formatNumber(`${m[1]}${m[2]}${m[3]}`);
       const chave = `${nome.toUpperCase()}|${numero}`;
       if (seen.has(chave)) continue;
