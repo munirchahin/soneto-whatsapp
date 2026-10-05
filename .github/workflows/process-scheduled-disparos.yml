@@ -13,3 +13,9 @@ jobs:
         run: |
           curl -sf -X POST "${{ secrets.APP_URL }}/api/cron/process-scheduled" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
+      - name: Chamar /api/cron/process-email-replies
+        if: always()
+        run: |
+          curl -sf -X POST "${{ secrets.APP_URL }}/api/cron/process-email-replies" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

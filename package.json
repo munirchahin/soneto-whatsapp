@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.1",
+    "imapflow": "^2.2.5",
+    "mailparser": "^3.9.36",
     "next": "16.2.6",
     "nodemailer": "^8.0.10",
     "react": "19.2.4",
@@ -18,6 +20,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/mailparser": "^3.9.0",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.0",
     "@types/react": "^19",
