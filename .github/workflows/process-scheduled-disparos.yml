@@ -1,8 +1,7 @@
 name: Processar disparos agendados
+# Gatilho principal: pg_cron no Supabase (migration 20261013000000). Este workflow fica só como disparo manual.
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 jobs:
