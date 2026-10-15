@@ -3,7 +3,7 @@ import nodemailer from "nodemailer";
 
 const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
-const EMAIL_TO = process.env.EMAIL_TO || "munir@chahinadv.com.br";
+const EMAIL_TO = process.env.EMAIL_TO || "munirchahin07@gmail.com";
 const PAINEL_URL = "https://sonetomoveis.com.br/whatsapp-pos-venda/";
 
 // Respostas ao email de notificação voltam para um endereço "plus" do próprio
