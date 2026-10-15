@@ -6,7 +6,7 @@ import { createTransport, numeroFromReplyAddress } from "@/lib/email";
 
 const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS || "";
-const EMAIL_TO = process.env.EMAIL_TO || "munir@chahinadv.com.br";
+const EMAIL_TO = process.env.EMAIL_TO || "munirchahin07@gmail.com";
 
 // Só olha emails recentes — respostas antigas que não foram processadas
 // provavelmente já caíram fora da janela de 24h do WhatsApp.
